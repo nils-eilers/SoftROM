@@ -1,0 +1,261 @@
+    1               ; **********************************************
+    2               ; ************* SoftROM EEPROM tool ************
+    3               ; **********************************************
+    4               
+    5               ; Source code for "The Black Smurf Assembler"
+    6               ; freely available from https://github.com/Edilbert/BSA
+    7               
+    8               ; ************
+    9               ; * Keycodes *
+   10               ; ************
+   11               
+   12 000d          CR         =  13     ; Carriage Return
+   13 0013          HOME       =  19     ; Home
+   14 0014          DEL        =  20     ; Delete
+   15 0093          CLR        = 147     ; Clear
+   16               
+   17 0050          COLUMNS    =  80     ; CBM 8000 series
+   18               
+   19 004d          Tracks     =  77     ; Tracks per side
+   20               
+   21               ; ****************************
+   22               ; * Some Zero Page Variables *
+   23               ; ****************************
+   24               
+   25 0016          BP        = $16      ; Buffer Pointer
+   26 0018          BAMP      = $18      ; BAM    Pointer
+   27 001a          TEMP      = $1a      ; Miscellenious
+   28 001b          SP        = $1b      ; SCREEN Pointer
+   29               
+   30               ; ************************
+   31               ; * CBM Kernal Variables *
+   32               ; ************************
+   33               
+   34 0096          STATUS    = $96      ; Status byte
+   35 009b          STKEY     = $9b      ; Stop key pressed?
+   36 00a7          BLNSW     = $a7      ; Blink switch
+   37 00a8          BLNCT     = $a8      ; Blink count
+   38 00aa          BLNON     = $aa      ; Blink On
+   39 00d4          FA        = $d4
+   40               
+   41               ; ********************************
+   42               ; * Location for status messages *
+   43               ; ********************************
+   44               
+   45 85a0          Screen_Command = $8000 + 18 * 80
+   46               
+   47               ; *****************************************
+   48               ; * Put the buffer after the program code *
+   49               ; *****************************************
+   50               
+   51 0500          Buffer  = [EOP & $ff00] + $100
+   52               
+   53               ; ***************************************************
+   54               ; * The CBM 8000 Kernal has no jump table for these *
+   55               ; ***************************************************
+   56               
+   57 f0d2          TALK    = $f0d2
+   58 f0d5          LISTEN  = $f0d5
+   59 f143          SECOND  = $f143
+   60 f193          TKSA    = $f193
+   61 f19e          CIOUT   = $f19e
+   62 f1ae          UNTLK   = $f1ae
+   63 f1b9          UNLSN   = $f1b9
+   64 f1c0          ACPTR   = $f1c0
+   65 ffd2          BSOUT   = $ffd2
+   66 ffe4          GETIN   = $ffe4
+   67               
+   68               ; ***************
+   69               ; * Print Macro *
+   70               ; ***************
+   71               
+   72               MACRO MAC_Print(lab)
+   73                        LDY #<lab
+   74                        LDA #>lab
+   75                        LDX #?lab
+   76                        JSR PrintText
+   77               ENDMAC
+   78               
+   79               ; **********************************
+   80               ; * BASIC header for program start *
+   81               ; **********************************
+   82               
+   83 0401          START   = $0401
+   84               
+   85 0401          * = START ; *** BASIC ***  CBM / PET series
+   86               
+   88 0401                  .STORE START,EOP-START,"softrom.prg"
+   89               
+   90 0401 23 04    Link      .WORD EndLink
+   91               
+   92               ; **********
+   93 0403            Linenumber
+   94               ; **********
+   95               
+   96 0403 de 07              .WORD 2014 
+   97               
+   98               ; **********
+   99 0405            SysCommand
+  100               ; **********
+  101               
+  102 0405 9e                 .BYTE $9e       ; SYS token 
+  103 0406 28 31 30 StartML   .BYTE "(1065)"
+  104 040c 3a 8f              .BYTE ':',$8f   ; REM token
+  105 040e 20 53 4f           .BYTE " SOFTROM EEPROM TOOL"
+  106 0422 00       LineEnd   .BYTE 0 
+  107 0423 00 00    EndLink   .WORD 0
+  108               
+  109 0425 4c 48 04           JMP Main
+  110               
+  111               
+  112               ; ****
+  113 0428            STOP
+  114               ; ****
+  115 0428 a5 9b              LDA STKEY
+  116 042a c9 ef              CMP #$ef
+  117 042c 60                 RTS
+  118               
+  119               ; **********
+  120 042d            Error_Beep
+  121               ; **********
+  122               
+  123 042d a9 07              LDA #7
+  124 042f 4c d2 ff           JMP BSOUT
+  125               
+  126               ; *********
+  127 0432            PrintText
+  128               ; *********
+  129               
+  130 0432 84 1b              STY SP
+  131 0434 85 1c              STA SP+1
+  132 0436 a0 00              LDY #0
+  133 0438 b1 1b    PrTe_10   LDA (SP),Y
+  134 043a 20 d2 ff           JSR BSOUT
+  135 043d c8                 INY
+  136 043e ca                 DEX
+  137 043f d0 f7              BNE PrTe_10
+  138 0441 60                 RTS
+  139               
+  140               ; ********************
+  141 0442            Flush_Keyboard_Queue
+  142               ; ********************
+  143               
+  144 0442 20 e4 ff           JSR GETIN
+  145 0445 d0 fb              BNE Flush_Keyboard_Queue
+  146 0447 60                 RTS  
+  147               
+  148               
+  149               
+  150               ; ****
+  151 0448            Main
+  152               ; ****
+  153               
+  154 0448 20 4c 04           JSR Detect_BASIC_version
+  155               
+  156 044b 60       EXIT      RTS
+  157 044c          EOP       ; END-OF-PROGRAM
+  158               
+  159               
+  160               
+  161               ; ********************
+  162 044c            Detect_BASIC_version
+  163               ; ********************
+  164               ; TODO: detect BASIC version and patch vectors
+  165 044c 60                 RTS
+
+
+   44 Symbols
+-------------
+CR                             $000d    12D
+HOME                           $0013    13D
+DEL                            $0014    14D
+BP                             $0016    25D
+BAMP                           $0018    26D
+TEMP                           $001a    27D
+SP                             $001b    28D   130    131    133y
+Tracks                         $004d    19D
+COLUMNS                        $0050    17D
+CLR                            $0093    15D
+STATUS                         $0096    34D
+STKEY                          $009b    35D   115 
+BLNSW                          $00a7    36D
+BLNCT                          $00a8    37D
+BLNON                          $00aa    38D
+FA                             $00d4    39D
+Link                           $0401    90D
+START                          $0401    83D    85     88     88 
+Linenumber                     $0403    93D
+SysCommand                     $0405    99D
+StartML                        $0406   103D
+LineEnd                        $0422   106D
+EndLink                        $0423   107D    90 
+STOP                           $0428   113D
+Error_Beep                     $042d   120D
+PrintText                      $0432   127D
+PrTe_10                        $0438   133D   137 
+Flush_Keyboard_Queue           $0442   141D   145 
+Main                           $0448   151D   109 
+EXIT                           $044b   156D
+Detect_BASIC_version           $044c   162D   154 
+EOP                            $044c   157D    51     88 
+Buffer                         $0500    51D
+Screen_Command                 $85a0    45D
+TALK                           $f0d2    57D
+LISTEN                         $f0d5    58D
+SECOND                         $f143    59D
+TKSA                           $f193    60D
+CIOUT                          $f19e    61D
+UNTLK                          $f1ae    62D
+UNLSN                          $f1b9    63D
+ACPTR                          $f1c0    64D
+BSOUT                          $ffd2    65D   124    134 
+GETIN                          $ffe4    66D   144 
+SP                             $001b    28D   130    131    133y
+STKEY                          $009b    35D   115 
+FA                             $00d4    39D
+BLNON                          $00aa    38D
+BLNCT                          $00a8    37D
+BLNSW                          $00a7    36D
+STATUS                         $0096    34D
+CLR                            $0093    15D
+COLUMNS                        $0050    17D
+Tracks                         $004d    19D
+TEMP                           $001a    27D
+BAMP                           $0018    26D
+BP                             $0016    25D
+DEL                            $0014    14D
+HOME                           $0013    13D
+CR                             $000d    12D
+START                          $0401    83D    85     88     88 
+SP                             $001b    28D   130    131    133y
+EOP                            $044c   157D    51     88 
+Detect_BASIC_version           $044c   162D   154 
+Main                           $0448   151D   109 
+Flush_Keyboard_Queue           $0442   141D   145 
+PrTe_10                        $0438   133D   137 
+EndLink                        $0423   107D    90 
+STKEY                          $009b    35D   115 
+Buffer                         $0500    51D
+EXIT                           $044b   156D
+PrintText                      $0432   127D
+Error_Beep                     $042d   120D
+STOP                           $0428   113D
+LineEnd                        $0422   106D
+StartML                        $0406   103D
+SysCommand                     $0405    99D
+Linenumber                     $0403    93D
+Link                           $0401    90D
+FA                             $00d4    39D
+BLNON                          $00aa    38D
+BLNCT                          $00a8    37D
+BLNSW                          $00a7    36D
+STATUS                         $0096    34D
+CLR                            $0093    15D
+COLUMNS                        $0050    17D
+Tracks                         $004d    19D
+TEMP                           $001a    27D
+BAMP                           $0018    26D
+BP                             $0016    25D
+DEL                            $0014    14D
+HOME                           $0013    13D
+CR                             $000d    12D
