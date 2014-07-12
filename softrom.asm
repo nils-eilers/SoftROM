@@ -167,8 +167,8 @@ EndLink   .WORD 0
           JMP Main
 
 NUMBER    .BYTE "00000 "
-UnitText  .BYTE @unit:@,0
-DriveText .BYTE @drive:@,0
+UnitText  .BYTE 'unit:',0
+DriveText .BYTE 'drive:',0
 Dir_Name  .BYTE "$0"
 Cols      .BYTE 80
 CursorRow .BYTE  0
@@ -182,13 +182,12 @@ EntryHi   .FILL 42 (0)
 Page      .BYTE  0
 Offset    .BYTE  0
 Unit      .BYTE  8
-Drive     .BYTE  0
+Drive     .BYTE  '0'
 LV0       .BYTE  0
 LV1       .BYTE  0
 EOD       .WORD  0  ; End Of Directory
 
-;Source_Status .FILL 40 (' ')
-Source_Status = $8000 + 121
+Disk_Status = $8000 + 121
 
 
 ; ****
@@ -341,7 +340,6 @@ ShUn10    JSR PutChar
 ; *********
 
           LDA Drive
-          ORA #'0'
           LDX #1
           LDY #15
           JMP PlotAt
@@ -397,12 +395,8 @@ FoFi40    INY
           BCS FoFi99
 FoFi50    LDA (STP),Y
           STA (BP),Y
-          BEQ FoFi99
-          CMP #$22
           BNE FoFi40
-          INC STP
           INC Entries
-          BNE FoFi50
 FoFi99    RTS
           
 
@@ -463,7 +457,10 @@ P2C99     RTS
           LDY #0
 ShEn10    LDA (BP),Y
           BEQ ShEn99
-          JSR PET2SCR
+          CMP #$22            ; hide quote
+          BNE ShEn20
+          LDA #' '
+ShEn20    JSR PET2SCR
           STA (SP),Y
           INY
           CPY #32
@@ -494,6 +491,16 @@ ShoE20    INX
           BCC ShoE10
 ShoE99    RTS
 
+
+; ********
+  MainLoop
+; ********
+
+          JSR STOP
+          BEQ MaLo99
+          JMP MainLoop
+MaLo99    RTS
+
 ; ****
   Main
 ; ****
@@ -507,13 +514,16 @@ ShoE99    RTS
           STA Entries
           LDA #8
           STA Unit
+          LDA #'0'
+          STA Drive
           JSR Load_Directory
           JSR ShowUnit
           JSR ShowDrive
           JSR ShowDiskName
           JSR FormatEntries
           JSR ShowEntries
-          LDY #20
+          JSR MainLoop
+          LDY #21
           LDA #13
 Main10    JSR BSOUT
           DEY
@@ -664,6 +674,7 @@ VeLi10   LDA ScreenLo,X
           LDY #0
           LDA (STP),Y
           BEQ PuSt99
+          JSR PET2SCR
           JSR PutChar
 PuSt10    INY
           CPY #40
@@ -746,7 +757,7 @@ PaMa10    JSR PaintPage
 
 
 ; *****************
-  Get_Source_Status
+  Get_Disk_Status
 ; *****************
 
           LDA Unit
@@ -758,7 +769,8 @@ PaMa10    JSR PaintPage
 gss_10    JSR ACPTR
           CMP #' ' 
           BCC gss_20
-          STA Source_Status,Y
+          JSR PET2SCR
+          STA Disk_Status,Y
           INY  
           CPY #40
           BCC gss_10
@@ -770,19 +782,26 @@ gss_20    JSR UNTLK
   Load_Directory
 ; **************
 
-          LDA Unit
+          LDA #<Buffer        ; Initialize buffer pointer BP
+          STA BP              ; and End Of Directory EOD
+          STA EOD
+          LDA #>Buffer
+          STA BP+1
+          STA EOD+1
+          LDA Unit            ; Send LOAD "$n" to Unit
           STA FA
           JSR LISTEN
           LDA #$f0
           JSR SECOND
           LDA #'$'
           JSR CIOUT
+          LDA Drive
+          JSR CIOUT
           JSR UNLSN
-          JSR Get_Source_Status
-LoDi05    LDA #<Buffer
-          STA BP
-          LDA #>Buffer
-          STA BP+1
+          JSR Get_Disk_Status
+          LDA Disk_Status
+          CMP #'0'
+          BNE LoDi99
           JSR TALK
           LDA #$60
           JSR TKSA
@@ -798,12 +817,11 @@ LoDi10    JSR ACPTR
           BNE LoDi10
           INC BP+1
           BPL LoDi10
-          BRK            ; TODO Error message
 LoDi20    JSR UNTLK
           STY EOD
           LDA BP+1
           STA EOD+1
-          RTS
+LoDi99    RTS
 
 EOP       ; END-OF-PROGRAM
 
