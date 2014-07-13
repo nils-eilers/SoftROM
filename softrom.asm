@@ -14,10 +14,15 @@
 ; * Keycodes *
 ; ************
 
+TAB        =   9     ; Tab
 CR         =  13     ; Carriage Return
 HOME       =  19     ; Home
 DEL        =  20     ; Delete
 CLR        = 147     ; Clear
+CDOWN      =  17     ; Cursor Down
+CRIGHT     =  29     ; Cursor Right
+CUP        = 145     ; Cursor Up
+CLEFT      = 157     ; Cursor Left
 
 ; ****************
 ; * Screen codes *
@@ -185,6 +190,8 @@ Unit      .BYTE  8
 Drive     .BYTE  '0'
 LV0       .BYTE  0
 LV1       .BYTE  0
+Reverse   .BYTE  0
+Select    .BYTE  2
 EOD       .WORD  0  ; End Of Directory
 
 Disk_Status = $8000 + 121
@@ -320,18 +327,23 @@ FORINT_06 RTS
   ShowUnit
 ; ********
 
+          LDX #0
+          LDY Select
+          BNE ShUn10
+          LDX #$80
+ShUn10    STX Reverse
           LDX #1
           LDY #6
           JSR GotoXY
           LDA Unit
           JSR FormatByte
           CPX #'0'
-          BEQ ShUn10
+          BEQ ShUn20
           PHA
           TXA
-          JSR PutChar
+          JSR PutCharR
           PLA
-ShUn10    JSR PutChar
+ShUn20    JSR PutCharR
           LDA #' '
           JMP PutChar
           
@@ -339,10 +351,16 @@ ShUn10    JSR PutChar
   ShowDrive
 ; *********
 
+          LDX #0
+          LDY Select
+          DEY
+          BNE ShDr10
+          LDX #$80
+ShDr10    STX Reverse
           LDA Drive
           LDX #1
           LDY #15
-          JMP PlotAt
+          JMP PlotAtR
 
 
 ; ************
@@ -415,6 +433,10 @@ FoEn10    LDY #4          ; after link and #
           CMP #' '        ; for filename must be blank
           BNE FoEn99
           JSR FormatFilename
+          JSR GetLoadAddress
+          LDX Entries
+          DEX
+          JSR ShowEntry
           CLC
           LDA BP
           ADC #$20
@@ -450,6 +472,14 @@ P2C99     RTS
   ShowEntry
 ; *********
 
+          LDY #0              ; not selected
+          TXA                 ; entry # in (X)
+          CLC
+          ADC #2
+          CMP Select
+          BNE ShEn05
+          LDY #$80            ; selected
+ShEn05    STY Reverse
           LDA EntryLo,X
           STA SP
           LDA EntryHi,X
@@ -461,6 +491,7 @@ ShEn10    LDA (BP),Y
           BNE ShEn20
           LDA #' '
 ShEn20    JSR PET2SCR
+          ORA Reverse
           STA (SP),Y
           INY
           CPY #32
@@ -492,12 +523,104 @@ ShoE20    INX
 ShoE99    RTS
 
 
+; ***********
+  RightSelect
+; ***********
+
+          LDA Select
+          BEQ IncSelect  ; Unit -> Drive
+          CMP #2
+          BCC RiSe99     ; Drive
+          CLC
+          ADC #19
+          CMP Entries
+          BCS RiSe99
+          ADC #2
+          STA Select
+RiSe99    RTS
+          
+          
+; **********
+  LeftSelect
+; **********
+
+          LDA Select
+          CMP #1
+          BEQ DecSelect  ; Unit <- Drive
+          CMP #23
+          BCC LeSe99
+          SBC #21
+          STA Select
+LeSe99    RTS
+          
+          
+; *********
+  IncSelect
+; *********
+
+          INC Select
+          LDX Select
+          CPX #2
+          BCC InSe99   ; drive selected
+          DEX
+          DEX
+          CPX Entries
+          BCC InSe99   ; in range
+          LDX #0
+          STX Select   ; wrap around
+InSe99    RTS
+          
+          
+; *********
+  DecSelect
+; *********
+
+          DEC Select
+          BPL DeSe99
+          LDX Entries
+          INX
+          STX Select   ; wrap around
+DeSe99    RTS
+          RTS
+          
+          
+; *************
+  ShowSelection
+; *************
+
+          JSR ShowUnit
+          JSR ShowDrive
+          JMP ShowEntries
+
+
 ; ********
   MainLoop
 ; ********
 
           JSR STOP
           BEQ MaLo99
+          JSR GETIN
+          BEQ MainLoop
+          CMP #TAB
+          BEQ MaLo85
+          CMP #CDOWN
+          BEQ MaLo85
+MaLo05    CMP #CUP
+          BNE MaLo10
+          JSR DecSelect
+          JMP MaLo90
+MaLo10    CMP #CRIGHT
+          BNE MaLo15
+          JSR RightSelect
+          JMP MaLo90
+MaLo15    CMP #CLEFT
+          BNE MaLo20
+          JSR LeftSelect
+          JMP MaLo90
+MaLo20    BRK
+          JMP MainLoop
+MaLo85    JSR IncSelect
+MaLo90    JSR ShowSelection
           JMP MainLoop
 MaLo99    RTS
 
@@ -660,7 +783,28 @@ VeLi10   LDA ScreenLo,X
           PLA
           LDY #0
           STA (SP),Y
+          INC CursorCol
+          RTS
+
+
+; ********
+  PutCharR
+; ********
+
+          PHA                ; A = Char
+          LDX CursorRow
+          CLC
+          LDA ScreenLo,X
+          ADC CursorCol
+          STA SP
+          LDA ScreenHi,X
+          ADC #0
+          STA SP+1
+          PLA
+          LDY #0
           JSR PET2SCR
+          ORA Reverse
+          STA (SP),Y
           INC CursorCol
           RTS
 
@@ -701,6 +845,24 @@ PuSt99    RTS
          LDA ScreenHi,X
          STA SP+1
          PLA
+         STA (SP),Y
+         RTS
+
+; *******
+  PlotAtR
+; *******
+
+         PHA              ; X = Row
+         CLC              ; Y = Col
+         TYA              ; A = Char
+         ADC Offset
+         TAY
+         LDA ScreenLo,X
+         STA SP
+         LDA ScreenHi,X
+         STA SP+1
+         PLA
+         ORA Reverse
          STA (SP),Y
          RTS
 
@@ -822,6 +984,80 @@ LoDi20    JSR UNTLK
           LDA BP+1
           STA EOD+1
 LoDi99    RTS
+
+; **************
+  GetLoadAddress
+; **************
+
+          LDY #$1e
+          LDA #0
+          STA (BP),Y          ; new end of string
+          LDY #$16            ; position of file type
+          LDA (BP),Y
+          CMP #'P'            ; PRG files only
+          BNE GLA99
+          LDA Unit            ; send LOAD "Filenamen" to Unit
+          STA FA
+          JSR LISTEN
+          LDA #$f0
+          JSR SECOND
+          LDY #4              ; start of ilename
+GLA10     LDA (BP),Y
+          CMP #$22            ; quote marks end of filename
+          BEQ GLA20
+          JSR CIOUT
+          INY
+          CPY #20
+          BCC GLA10
+GLA20     JSR UNLSN
+          JSR Get_Disk_Status
+          LDA Disk_Status
+          CMP #'0'
+          BNE GLA99
+          JSR TALK
+          LDA #$60
+          JSR TKSA
+          JSR ACPTR
+          JSR ASCII_Hex
+          LDY #$1d             ; load address low
+          STA (BP),Y
+          DEY
+          TXA
+          STA (BP),Y
+          JSR ACPTR
+          JSR ASCII_Hex
+          DEY                  ; load address high
+          STA (BP),Y
+          DEY
+          TXA
+          STA (BP),Y
+          JSR UNTLK
+GLA99     RTS
+
+; **********
+  ASCII_Hex
+; **********
+
+; Input:  (A)
+; Output: (X) = High nibble (A) = Low nibble
+         PHA  
+         LSR A
+         LSR A
+         LSR A
+         LSR A
+         ORA #'0' 
+         CMP #$3a 
+         BCC Hex_11
+         ADC #6
+Hex_11   TAX  
+         PLA  
+         AND #15
+         ORA #'0' 
+         CMP #$3a 
+         BCC Hex_12
+         ADC #6
+Hex_12   RTS  
+
 
 EOP       ; END-OF-PROGRAM
 
