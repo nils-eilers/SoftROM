@@ -27,4 +27,4 @@ ENTER starts the write process:
 - EEPROM write protection is enabled again
 - Verify EEPROM against file buffer
 
-![ScreenShot](https://raw.github.com/nils-eilers/SoftROM/hot.jpg)
+![ScreenShot](https://github.com/nils-eilers/SoftROM/blob/master/shot.jpg)
