@@ -165,7 +165,7 @@ Link      .WORD EndLink
           .BYTE $9e       ; SYS token 
 StartML   .BYTE "(1065)"
           .BYTE ':',$8f   ; REM token
-          .BYTE " SOFTROM EEPROM TOOL 0.0"
+          .BYTE " SOFTROM EEPROM TOOL 0.1"
 LineEnd   .BYTE 0 
 EndLink   .WORD 0
 
@@ -174,11 +174,12 @@ EndLink   .WORD 0
 NUMBER    .BYTE "00000 "
 UnitText  .BYTE 'unit:',0
 DriveText .BYTE 'drive:',0
-Dir_Name  .BYTE "$0"
 Cols      .BYTE 80
 CursorRow .BYTE  0
 CursorCol .BYTE  0
 Entries   .BYTE  0
+FirstLine .BYTE  0
+LastLine  .BYTE 42
 Pages     .BYTE  2
 ScreenLo  .FILL 25 (0)
 ScreenHi  .FILL 25 (0)
@@ -192,9 +193,11 @@ LV0       .BYTE  0
 LV1       .BYTE  0
 Reverse   .BYTE  0
 Select    .BYTE  2
+FirstFile .BYTE  0  ; First file on display
+SOD       .WORD  0  ; Start Of Directory
 EOD       .WORD  0  ; End Of Directory
 
-Disk_Status = $8000 + 121
+DiskStatus = $8000 + 121
 
 
 ; ****
@@ -472,6 +475,8 @@ P2C99     RTS
   ShowEntry
 ; *********
 
+          CPX LastLine
+          BCS ShEn99
           LDY #0              ; not selected
           TXA                 ; entry # in (X)
           CLC
@@ -503,9 +508,9 @@ ShEn99    RTS
   ShowEntries
 ; ***********
 
-          LDA #<[Buffer + $20]
+          LDA SOD
           STA BP
-          LDA #>[Buffer + $20]
+          LDA SOD+1
           STA BP+1
           LDX #0
 ShoE10    JSR ShowEntry
@@ -516,9 +521,11 @@ ShoE10    JSR ShowEntry
           BCC ShoE20
           INC BP+1
 ShoE20    INX
-          CPX Entries
+          CPX LastLine
           BCS ShoE99
-          CPX #42
+          TXA
+          ADC FirstLine  ; Carry is clear 
+          CMP Entries
           BCC ShoE10
 ShoE99    RTS
 
@@ -539,7 +546,8 @@ ShoE99    RTS
           STA Select
 RiSe99    RTS
           
-          
+
+
 ; **********
   LeftSelect
 ; **********
@@ -558,30 +566,60 @@ LeSe99    RTS
   IncSelect
 ; *********
 
-          INC Select
           LDX Select
-          CPX #2
-          BCC InSe99   ; drive selected
+          BEQ InSe30          ; Unit
           DEX
-          DEX
+          BEQ InSe30          ; Drive
+          CPX LastLine
+          BCC InSe10
+          CLC                 ; Scroll display
+          LDA FirstLine
+          ADC LastLine
+          CMP Entries
+          BCS InSe20          ; At end alreay
+          INC FirstLine
+          LDA SOD             ; Advance SOD
+          ADC #$20
+          STA SOD
+          BCC InSe05
+          INC SOD+1
+InSe05    RTS
+InSe10    DEX
           CPX Entries
-          BCC InSe99   ; in range
-          LDX #0
-          STX Select   ; wrap around
+          BCC InSe30          ; in range
+InSe20    LDX #1
+          STX Select          ; wrap around
+InSe30    INC Select
 InSe99    RTS
+          
           
           
 ; *********
   DecSelect
 ; *********
 
-          DEC Select
+          LDX Select
+          CPX #2              ; First file
+          BNE DeSe20
+          LDA FirstLine       ; Scroll display
+          BEQ DeSe20
+          DEC FirstLine
+          SEC
+          LDA SOD
+          SBC #$20
+          STA SOD
+          BCS DeSe10
+          DEC SOD+1
+DeSe10    RTS
+DeSe20    DEC Select
           BPL DeSe99
           LDX Entries
           INX
-          STX Select   ; wrap around
+          CPX LastLine
+          BCC DeSe30
+          LDX LastLine
+DeSe30    STX Select          ; wrap around
 DeSe99    RTS
-          RTS
           
           
 ; *************
@@ -594,13 +632,67 @@ DeSe99    RTS
 
 
 ; ********
+  IncValue
+; ********
+
+          LDX Select
+          BNE InVa10
+          LDA Unit
+          CMP #11
+          BCS InVa99
+          INC Unit
+          BNE InVa20
+InVa10    DEX
+          BNE InVa99
+          LDA Drive
+          CMP #'9'
+          BCS InVa99
+          INC Drive
+InVa20    JSR Reload
+InVa99    RTS
+
+; ********
+  DecValue
+; ********
+
+          LDX Select
+          BNE DeVa10
+          LDA Unit
+          CMP #9
+          BCC DeVa99
+          DEC Unit
+          BNE DeVa20
+DeVa10    DEX
+          BNE DeVa99
+          LDA Drive
+          CMP #'1'
+          BCC DeVa99
+          DEC Drive
+DeVa20    JSR Reload
+DeVa99    RTS
+
+
+; **********
+  HomeSelect
+; **********
+
+          LDA #0
+          STA Select
+          STA FirstLine
+          LDA #$20
+          STA SOD
+          LDA #>Buffer
+          STA SOD+1
+          RTS
+
+; ********
   MainLoop
 ; ********
 
-          JSR STOP
-          BEQ MaLo99
           JSR GETIN
           BEQ MainLoop
+          CMP #3          ; STOP key
+          BEQ MaLo99    
           CMP #TAB
           BEQ MaLo85
           CMP #CDOWN
@@ -617,12 +709,64 @@ MaLo15    CMP #CLEFT
           BNE MaLo20
           JSR LeftSelect
           JMP MaLo90
-MaLo20    BRK
+MaLo20    CMP #'+'
+          BNE MaLo25
+          JSR IncValue
+          JMP MaLo90
+MaLo25    CMP #'-'
+          BNE MaLo30
+          JSR DecValue
+          JMP MaLo90
+MaLo30    CMP #HOME
+          BNE MaLo35
+          JSR HomeSelect
+          JMP MaLo90
+MaLo35    ;BRK
           JMP MainLoop
 MaLo85    JSR IncSelect
 MaLo90    JSR ShowSelection
           JMP MainLoop
 MaLo99    RTS
+
+
+; ******
+  Reload
+; ******
+
+          LDA #0
+          STA Entries
+          JSR PaintMask
+          JSR ShowUnit
+          JSR ShowDrive
+          JSR LoadDirectory
+          JSR ShowDiskName
+          JSR FormatEntries
+          LDA Entries
+          BEQ Relo10
+          LDA #2
+          STA Select
+          JSR ShowEntries
+          JSR ShowUnit
+Relo10    RTS
+
+
+; ****
+  Init
+; ****
+
+          LDA #8
+          STA Unit
+          LDA #'0'
+          STA Drive
+          LDA #0
+          STA CursorRow
+          STA CursorCol
+          STA Entries
+          STA Offset
+          STA Reverse
+          STA Select
+          STA FirstLine
+          RTS
 
 ; ****
   Main
@@ -632,25 +776,15 @@ MaLo99    RTS
           JSR Detect_Screen_Width
           JSR SetupScreen
           JSR SetupEntries
-          JSR PaintMask
-          LDA #0
-          STA Entries
-          LDA #8
-          STA Unit
-          LDA #'0'
-          STA Drive
-          JSR Load_Directory
-          JSR ShowUnit
-          JSR ShowDrive
-          JSR ShowDiskName
-          JSR FormatEntries
-          JSR ShowEntries
+          JSR Init
+          JSR Reload
           JSR MainLoop
           LDY #21
           LDA #13
 Main10    JSR BSOUT
           DEY
           BNE Main10
+          JSR Flush_Keyboard_Queue
 EXIT      RTS
 
 
@@ -669,6 +803,8 @@ EXIT      RTS
           STA Cols
           LDA #2
           STA Pages
+          LDA #42
+          STA LastLine
           RTS
 
 
@@ -866,9 +1002,9 @@ PuSt99    RTS
          STA (SP),Y
          RTS
 
-; **********
+; *********
   PaintPage
-; **********
+; *********
 
           LDY #0
           JSR Hor_Line
@@ -888,9 +1024,9 @@ PuSt99    RTS
           MAC_Plot( 2,39,TR)
           RTS
 
-; **********
+; *********
   PaintMask
-; **********
+; *********
 
           LDA #142         ; Screen Mode
           JSR BSOUT
@@ -918,9 +1054,9 @@ PaMa10    JSR PaintPage
 
 
 
-; *****************
-  Get_Disk_Status
-; *****************
+; *************
+  GetDiskStatus
+; *************
 
           LDA Unit
           STA FA
@@ -932,7 +1068,7 @@ gss_10    JSR ACPTR
           CMP #' ' 
           BCC gss_20
           JSR PET2SCR
-          STA Disk_Status,Y
+          STA DiskStatus,Y
           INY  
           CPY #40
           BCC gss_10
@@ -940,16 +1076,24 @@ gss_20    JSR UNTLK
           RTS  
 
 
-; **************
-  Load_Directory
-; **************
+; *************
+  LoadDirectory
+; *************
 
           LDA #<Buffer        ; Initialize buffer pointer BP
           STA BP              ; and End Of Directory EOD
           STA EOD
+          LDA #$20
+          STA SOD
           LDA #>Buffer
           STA BP+1
           STA EOD+1
+          STA SOD+1
+          LDY #0
+          TYA
+LoDi05    STA Buffer,Y
+          INY
+          BNE LoDi05
           LDA Unit            ; Send LOAD "$n" to Unit
           STA FA
           JSR LISTEN
@@ -960,8 +1104,8 @@ gss_20    JSR UNTLK
           LDA Drive
           JSR CIOUT
           JSR UNLSN
-          JSR Get_Disk_Status
-          LDA Disk_Status
+          JSR GetDiskStatus
+          LDA DiskStatus
           CMP #'0'
           BNE LoDi99
           JSR TALK
@@ -1010,8 +1154,8 @@ GLA10     LDA (BP),Y
           CPY #20
           BCC GLA10
 GLA20     JSR UNLSN
-          JSR Get_Disk_Status
-          LDA Disk_Status
+          JSR GetDiskStatus
+          LDA DiskStatus
           CMP #'0'
           BNE GLA99
           JSR TALK
