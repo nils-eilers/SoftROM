@@ -26,3 +26,5 @@ ENTER starts the write process:
 - buffered file content is written in chunks of 64 bytes
 - EEPROM write protection is enabled again
 - Verify EEPROM against file buffer
+
+![ScreenShot](https://raw.github.com/nils-eilers/SoftROM/hot.jpg)
