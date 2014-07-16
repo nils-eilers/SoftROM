@@ -15,9 +15,6 @@ Future versions will support BASIC 2 and 40 columns too.
 It shows the directory of a drive with a file selection bar and lets the
 user select an image to write into the EEPROM with cursor up/down.
 If the directory exceeds the size of the screen, it scrolls up and down.
-The unit and drive number may be changed with '+' and '-' keys.
-The HOME key resets the screen and highlites the unit number.
-The STOP key or Control-C stops the program.
 
 A filter is available to show only files with appropiate size and start
 address that qualify the file as an extension ROM image file.

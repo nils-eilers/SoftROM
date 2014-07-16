@@ -54,23 +54,15 @@ TL         = 107     ; T left
 TR         = 115     ; T right
 #endif
 
-COLUMNS    =  80     ; CBM 8000 series
 ROWS       =  25
-
-Tracks     =  77     ; Tracks per side
 
 ; ****************************
 ; * Some Zero Page Variables *
 ; ****************************
 
-BP        = $16      ; Buffer Pointer
-STP       = $18      ; String Pointer
-TEMP      = $1a      ; Miscellenious
-SP        = $1b      ; SCREEN Pointer
-FNLEN     = $d1      ; Length of Filename
-SA        = $d3      ; Secondary Address
-FA        = $d4      ; First Address
-FNADR     = $da      ; Pointer to Filename
+BP        = $5e      ; Buffer Pointer
+STP       = $60      ; String Pointer
+SP        = $62      ; SCREEN Pointer
 
 ; ************************
 ; * CBM Kernal Variables *
@@ -81,13 +73,14 @@ STKEY     = $9b      ; Stop key pressed?
 BLNSW     = $a7      ; Blink switch
 BLNCT     = $a8      ; Blink count
 BLNON     = $aa      ; Blink On
-FA        = $d4
+FA        = $d4      ; First Address
 
-; ********************************
-; * Location for status messages *
-; ********************************
+; *************
+; * Constants *
+; *************
 
 Screen = $8000
+EntriesPerPage = 20
 
 ; *****************************************
 ; * Put the buffer after the program code *
@@ -101,6 +94,7 @@ PosDiskID   = 26
 ; * The CBM 8000 Kernal has no jump table for these *
 ; ***************************************************
 
+READY   = $b403 ; $b3ff ; $b406 omitting prompt
 TALK    = $f0d2
 LISTEN  = $f0d5
 SECOND  = $f143
@@ -162,43 +156,111 @@ Link      .WORD EndLink
   SysCommand
 ; **********
 
-          .BYTE $9e       ; SYS token 
-StartML   .BYTE "(1065)"
-          .BYTE ':',$8f   ; REM token
-          .BYTE " SOFTROM EEPROM TOOL 0.1"
-LineEnd   .BYTE 0 
-EndLink   .WORD 0
+            .BYTE $9e       ; SYS token 
+StartML     .BYTE "(1065)"
+            .BYTE ':',$8f   ; REM token
+            .BYTE " SOFTROM EEPROM TOOL 0.1"
+LineEnd     .BYTE 0 
+EndLink     .WORD 0
 
           JMP Main
 
-NUMBER    .BYTE "00000 "
-UnitText  .BYTE 'unit:',0
-DriveText .BYTE 'drive:',0
-Cols      .BYTE 80
-CursorRow .BYTE  0
-CursorCol .BYTE  0
-Entries   .BYTE  0
-FirstLine .BYTE  0
-LastLine  .BYTE 42
-Pages     .BYTE  2
-ScreenLo  .FILL 25 (0)
-ScreenHi  .FILL 25 (0)
-EntryLo   .FILL 42 (0)
-EntryHi   .FILL 42 (0)
-Page      .BYTE  0
-Offset    .BYTE  0
-Unit      .BYTE  8
-Drive     .BYTE  '0'
-LV0       .BYTE  0
-LV1       .BYTE  0
-Reverse   .BYTE  0
-Select    .BYTE  2
-FirstFile .BYTE  0  ; First file on display
-SOD       .WORD  0  ; Start Of Directory
-EOD       .WORD  0  ; End Of Directory
+NUMBER      .BYTE "00000 "
+UnitText    .BYTE 'unit:',0
+DriveText   .BYTE 'drive:',0
+HelpText    .BYTE "<H> = HELP",0
+ProgramText .BYTE " SOFTROM EEPROM TOOL (C) NILS EILERS & BS ",0
+Msg_READY   .BYTE "READY.",0
+Cols        .BYTE 80
+Count       .BYTE  0
+CursorRow   .BYTE  0
+CursorCol   .BYTE  0
+Entries     .BYTE  0
+FirstLine   .BYTE  0
+LastLine    .BYTE 20
+HelpScreen  .BYTE  0
+Pages       .BYTE  2
+ScreenLo    .FILL 25 (0)
+ScreenHi    .FILL 25 (0)
+EntryLo     .FILL 40 (0)
+EntryHi     .FILL 40 (0)
+Page        .BYTE  0
+Offset      .BYTE  0
+Unit        .BYTE  8
+Drive       .BYTE  '0'
+LV0         .BYTE  0
+LV1         .BYTE  0
+Reverse     .BYTE  0
+Select      .BYTE  2
+FirstFile   .BYTE  0  ; First file on display
+SOD         .WORD  0  ; Start Of Directory
+EOD         .WORD  0  ; End Of Directory
 
-DiskStatus = $8000 + 121
+DiskStatus = $8000 + 201
 
+HelpLen   = 30
+HelpLines =  7
+HelpWin     .BYTE "UP/DN  MOVE SELECTION BAR    ",0
+            .BYTE "+ / -  CHANGE UNIT OR DRIVE #",0
+            .BYTE "HOME   RESET THE SCREEN      ",0
+            .BYTE "RETURN FLASH EEPROM FROM FILE",0
+            .BYTE "STOP   QUIT THE PROGRAM      ",0
+            .BYTE "H      SHOW THIS HELP WINDOW ",0
+            .BYTE "ESC    CLOSE HELP WINDOW     ",0
+
+
+; ********
+  ShowHelp
+; ********
+
+          LDA #0
+          STA Offset
+          LDX #53
+          STX Count
+          LDX #8
+          LDY #24
+          JSR HorLine
+          LDX #16
+          LDY #24
+          JSR HorLine
+          LDX #16
+          STX Count
+          LDX #8
+          LDY #23
+          JSR VerLine
+          LDX #8
+          LDY #53
+          JSR VerLine
+          MAC_Plot( 8,23,UL)
+          MAC_Plot( 8,53,UR)
+          MAC_Plot(16,23,LL)
+          MAC_Plot(16,53,LR)
+          LDA #HelpLines
+          STA Count
+          LDX #9
+          LDY #24
+          JSR GotoXY
+          LDX #<HelpWin
+          LDY #>HelpWin
+ShHe10    JSR PutString
+          LDX CursorRow
+          INX
+          LDY #24
+          JSR GotoXY
+          CLC
+          LDA STP
+          ADC #HelpLen
+          TAX
+          LDA STP+1
+          ADC #0
+          TAY
+          DEC Count
+          BNE ShHe10
+          LDA #$ff
+          STA HelpScreen
+          RTS
+
+          
 
 ; ****
   STOP
@@ -335,7 +397,7 @@ FORINT_06 RTS
           BNE ShUn10
           LDX #$80
 ShUn10    STX Reverse
-          LDX #1
+          LDX #2
           LDY #6
           JSR GotoXY
           LDA Unit
@@ -361,7 +423,7 @@ ShUn20    JSR PutCharR
           LDX #$80
 ShDr10    STX Reverse
           LDA Drive
-          LDX #1
+          LDX #2
           LDY #15
           JMP PlotAtR
 
@@ -370,7 +432,7 @@ ShDr10    STX Reverse
   ShowDiskName
 ; ************
 
-          LDX #1
+          LDX #2
           LDY #18
           JSR GotoXY
           LDA #' '
@@ -475,32 +537,36 @@ P2C99     RTS
   ShowEntry
 ; *********
 
+; Input: (X)  = entry # (unchanged)
+;        (BP) = buffer pointer
+; Used:  (A),(Y)
+
           CPX LastLine
           BCS ShEn99
-          LDY #0              ; not selected
+          LDY #0              ; no reverse
           TXA                 ; entry # in (X)
           CLC
           ADC #2
           CMP Select
-          BNE ShEn05
+          BNE ShEn10
           LDY #$80            ; selected
-ShEn05    STY Reverse
+ShEn10    STY Reverse
           LDA EntryLo,X
           STA SP
           LDA EntryHi,X
           STA SP+1
           LDY #0
-ShEn10    LDA (BP),Y
+ShEn20    LDA (BP),Y
           BEQ ShEn99
           CMP #$22            ; hide quote
-          BNE ShEn20
+          BNE ShEn30
           LDA #' '
-ShEn20    JSR PET2SCR
+ShEn30    JSR PET2SCR
           ORA Reverse
           STA (SP),Y
           INY
           CPY #32
-          BCC ShEn10
+          BCC ShEn20
 ShEn99    RTS
 
 
@@ -566,30 +632,34 @@ LeSe99    RTS
   IncSelect
 ; *********
 
+; Increment selection
+;    0 : unit
+;    1 : drive
+;  > 1 : filename
+
           LDX Select
-          BEQ InSe30          ; Unit
+          BEQ InSe40          ; Unit
           DEX
-          BEQ InSe30          ; Drive
+          BEQ InSe40          ; Drive
           CPX LastLine
-          BCC InSe10
+          BCC InSe20
           CLC                 ; Scroll display
           LDA FirstLine
           ADC LastLine
           CMP Entries
-          BCS InSe20          ; At end alreay
+          BCS InSe30          ; At end alreay
           INC FirstLine
           LDA SOD             ; Advance SOD
           ADC #$20
           STA SOD
-          BCC InSe05
+          BCC InSe10
           INC SOD+1
-InSe05    RTS
-InSe10    DEX
-          CPX Entries
-          BCC InSe30          ; in range
-InSe20    LDX #1
+InSe10    RTS
+InSe20    CPX Entries
+          BCC InSe40          ; in range
+InSe30    LDX #1
           STX Select          ; wrap around
-InSe30    INC Select
+InSe40    INC Select
 InSe99    RTS
           
           
@@ -597,6 +667,11 @@ InSe99    RTS
 ; *********
   DecSelect
 ; *********
+
+; Decrement selection
+;    0 : unit
+;    1 : drive
+;  > 1 : filename
 
           LDX Select
           CPX #2              ; First file
@@ -614,11 +689,11 @@ DeSe10    RTS
 DeSe20    DEC Select
           BPL DeSe99
           LDX Entries
-          INX
           CPX LastLine
           BCC DeSe30
           LDX LastLine
-DeSe30    STX Select          ; wrap around
+DeSe30    INX
+          STX Select          ; wrap around
 DeSe99    RTS
           
           
@@ -691,7 +766,12 @@ DeVa99    RTS
 
           JSR GETIN
           BEQ MainLoop
-          CMP #3          ; STOP key
+          BIT HelpScreen
+          BPL MaLo02
+          PHA
+          JSR Repaint
+          PLA
+MaLo02    CMP #3          ; STOP key
           BEQ MaLo99    
           CMP #TAB
           BEQ MaLo85
@@ -721,12 +801,36 @@ MaLo30    CMP #HOME
           BNE MaLo35
           JSR HomeSelect
           JMP MaLo90
-MaLo35    ;BRK
+MaLo35    CMP #'H'
+          BNE MaLo40
+          JSR ShowHelp
+          JMP MainLoop
+MaLo40
+          ;BRK
           JMP MainLoop
 MaLo85    JSR IncSelect
 MaLo90    JSR ShowSelection
           JMP MainLoop
 MaLo99    RTS
+
+
+; *******
+  Repaint
+; *******
+
+          LDA #0
+          STA HelpScreen
+          JSR PaintMask
+          JSR ShowUnit
+          JSR ShowDrive
+          JSR ShowDiskName
+          LDA Entries
+          BEQ Repa10
+          LDA #2
+          STA Select
+          JSR ShowEntries
+          JSR ShowUnit
+Repa10    RTS
 
 
 ; ******
@@ -735,19 +839,10 @@ MaLo99    RTS
 
           LDA #0
           STA Entries
-          JSR PaintMask
-          JSR ShowUnit
-          JSR ShowDrive
           JSR LoadDirectory
-          JSR ShowDiskName
           JSR FormatEntries
-          LDA Entries
-          BEQ Relo10
-          LDA #2
-          STA Select
-          JSR ShowEntries
-          JSR ShowUnit
-Relo10    RTS
+          JSR Repaint
+          RTS
 
 
 ; ****
@@ -779,13 +874,10 @@ Relo10    RTS
           JSR Init
           JSR Reload
           JSR MainLoop
-          LDY #21
-          LDA #13
-Main10    JSR BSOUT
-          DEY
-          BNE Main10
           JSR Flush_Keyboard_Queue
-EXIT      RTS
+          LDA #<Msg_READY
+          LDY #>Msg_READY
+          JMP READY
 
 
 
@@ -803,7 +895,7 @@ EXIT      RTS
           STA Cols
           LDA #2
           STA Pages
-          LDA #42
+          LDA #40
           STA LastLine
           RTS
 
@@ -834,8 +926,8 @@ SeSe20    INY
 ; ************
 
           LDY #0
-SeEn10    LDA ScreenLo+3,Y
-          LDX ScreenHi+3,Y
+SeEn10    LDA ScreenLo+4,Y
+          LDX ScreenHi+4,Y
           ORA #1
           STA EntryLo,Y
           PHA
@@ -844,45 +936,53 @@ SeEn10    LDA ScreenLo+3,Y
           PLA
           CLC
           ADC #40
-          STA EntryLo+21,Y
+          STA EntryLo+EntriesPerPage,Y
           BCC SeEn20
           INX
 SeEn20    TXA
-          STA EntryHi+21,Y
+          STA EntryHi+EntriesPerPage,Y
           INY
-          CPY #21
+          CPY #EntriesPerPage
           BCC SeEn10
           RTS
 
 
 ; ********
-  Hor_Line
+  HorLine
 ; ********
 
+; Draw a horizontal line
+; (X)   = Row
+; (Y)   = Start column
+; Count = Last  column + 1
+
          CLC
-         LDA ScreenLo,Y   ; Row # (0-24) in Y
+         LDA ScreenLo,X
          ADC Offset
          STA SP
-         LDA ScreenHi,Y
+         LDA ScreenHi,X
          ADC #0
          STA SP+1
-         LDY #1
          LDA #HOR_BAR
 HoLi10   STA (SP),Y
          INY
-         CPY #39
+         CPY Count
          BCC HoLi10
          RTS
 
 ; ********
-  Ver_Line
+  VerLine
 ; ********
+
+; Draw a vertical line
+; (Y)   = Column
+; (X)   = Start row
+; Count = Last  row + 1
 
          CLC
          TYA
          ADC Offset
          TAY
-         LDX #1           ; Col # (0-39) in Y
 VeLi10   LDA ScreenLo,X
          STA SP
          LDA ScreenHi,X
@@ -890,7 +990,7 @@ VeLi10   LDA ScreenLo,X
          LDA #VER_BAR
          STA (SP),Y
          INX
-         CPX #24
+         CPX Count
          BCC VeLi10
          RTS
 
@@ -955,13 +1055,14 @@ VeLi10   LDA ScreenLo,X
           LDA (STP),Y
           BEQ PuSt99
           JSR PET2SCR
-          JSR PutChar
+          JSR PutCharR
 PuSt10    INY
-          CPY #40
+          CPY #80
           BCS PuSt99      ; safety exit
           LDA (STP),Y
           BEQ PuSt99
           JSR PET2SCR
+          ORA Reverse
           STA (SP),Y
           INC CursorCol
           BNE PuSt10
@@ -1006,22 +1107,31 @@ PuSt99    RTS
   PaintPage
 ; *********
 
+          LDX #39
+          STX Count
+          LDX #1
+          LDY #1
+          JSR HorLine
+          LDX #3
+          LDY #1
+          JSR HorLine
+          LDX #24
+          LDY #1
+          JSR HorLine
+          LDX #24
+          STX Count
+          LDX #1
           LDY #0
-          JSR Hor_Line
-          LDY #2
-          JSR Hor_Line
-          LDY #24
-          JSR Hor_Line
-          LDY #0
-          JSR Ver_Line
+          JSR VerLine
+          LDX #1
           LDY #39
-          JSR Ver_Line
-          MAC_Plot( 0, 0,UL)
-          MAC_Plot( 0,39,UR)
+          JSR VerLine
+          MAC_Plot( 1, 0,UL)
+          MAC_Plot( 1,39,UR)
           MAC_Plot(24, 0,LL)
           MAC_Plot(24,39,LR)
-          MAC_Plot( 2, 0,TL)
-          MAC_Plot( 2,39,TR)
+          MAC_Plot( 3, 0,TL)
+          MAC_Plot( 3,39,TR)
           RTS
 
 ; *********
@@ -1048,8 +1158,14 @@ PaMa10    JSR PaintPage
           BNE PaMa10
           LDA #0
           STA Offset
-          MAC_PutString(1,1,UnitText)
-          MAC_PutString(1,9,DriveText)
+          MAC_PutString(2,1,UnitText)
+          MAC_PutString(2,9,DriveText)
+          LDA #$80
+          STA Reverse
+          MAC_PutString(0,19,ProgramText)
+          LDA #0
+          STA Reverse
+          MAC_PutString(0,69,HelpText)
           RTS
 
 
