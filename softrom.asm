@@ -63,6 +63,8 @@ ROWS       =  25
 BP        = $5e      ; Buffer Pointer
 STP       = $60      ; String Pointer
 SP        = $62      ; SCREEN Pointer
+TP        = $64      ; Temporary Pointer
+SelPtr    = $66      ; Selection pointer
 
 ; ************************
 ; * CBM Kernal Variables *
@@ -73,7 +75,13 @@ STKEY     = $9b      ; Stop key pressed?
 BLNSW     = $a7      ; Blink switch
 BLNCT     = $a8      ; Blink count
 BLNON     = $aa      ; Blink On
-FA        = $d4      ; First Address
+EAL       = $c9      ; used for LOAD, SAVE and TIM
+FNLEN     = $d1      ; Filename length
+SA        = $d3      ; Secondary address
+FA        = $d4      ; First sddress
+FNADR     = $da      ; Filename address
+
+DOS_Filename = $0342
 
 ; *************
 ; * Constants *
@@ -104,7 +112,10 @@ UNTLK   = $f1ae
 UNLSN   = $f1b9
 ACPTR   = $f1c0
 BSOUT   = $ffd2
+CHROUT  = $ffd2
 GETIN   = $ffe4
+
+Kernal_STOP = $f343
 
 ; ***************
 ; * Print Macro *
@@ -122,7 +133,7 @@ MACRO MAC_Plot(Row,Col,Char)
           LDX #Row
           LDY #Col
           JSR PlotAt
-ENDMAC 
+ENDMAC
 
 MACRO MAC_PutString(Row,Col,Text)
           LDX #Row
@@ -132,6 +143,12 @@ MACRO MAC_PutString(Row,Col,Text)
           LDY #>Text
           JSR PutString
 ENDMAC
+
+; ***************************************************
+; The directory is loaded into RAM beyond the program
+; SOD = Start of directory
+; EOD = End   of directory
+; ***************************************************
 
 ; **********************************
 ; * BASIC header for program start *
@@ -150,24 +167,24 @@ Link      .WORD EndLink
   Linenumber
 ; **********
 
-          .WORD 2014 
+          .WORD 2015
 
 ; **********
   SysCommand
 ; **********
 
-            .BYTE $9e       ; SYS token 
+            .BYTE $9e       ; SYS token
 StartML     .BYTE "(1065)"
             .BYTE ':',$8f   ; REM token
-            .BYTE " SOFTROM EEPROM TOOL 0.1"
-LineEnd     .BYTE 0 
+            .BYTE " SOFTROM EEPROM TOOL 0.2"
+LineEnd     .BYTE 0
 EndLink     .WORD 0
 
           JMP Main
 
 NUMBER      .BYTE "00000 "
-UnitText    .BYTE 'unit:',0
-DriveText   .BYTE 'drive:',0
+UnitText    .PET  'unit:',0
+DriveText   .PET  'drive:',0
 HelpText    .BYTE "<H> = HELP",0
 ProgramText .BYTE " SOFTROM EEPROM TOOL (C) NILS EILERS & BS ",0
 Msg_READY   .BYTE "READY.",0
@@ -195,6 +212,11 @@ Select      .BYTE  2
 FirstFile   .BYTE  0  ; First file on display
 SOD         .WORD  0  ; Start Of Directory
 EOD         .WORD  0  ; End Of Directory
+TargetLo    .BYTE  $00
+TargetHi    .BYTE  $90
+SelectionLo .BYTE  0
+SelectionHi .BYTE  0
+SelFilename .BYTE 16
 
 DiskStatus = $8000 + 201
 
@@ -260,7 +282,7 @@ ShHe10    JSR PutString
           STA HelpScreen
           RTS
 
-          
+
 
 ; ****
   STOP
@@ -296,7 +318,7 @@ PrTe_10   LDA (SP),Y
 
           JSR GETIN
           BNE Flush_Keyboard_Queue
-          RTS  
+          RTS
 
 ; ***********
   FormatByte
@@ -307,20 +329,20 @@ PrTe_10   LDA (SP),Y
 
           LDY #'0'      ; 100
           LDX #'0'-1    ;  10
-          SEC  
-asts_01   INX  
+          SEC
+asts_01   INX
           SBC #10
           BCS asts_01
-          ADC #$3a 
-          CPX #$3a 
+          ADC #$3a
+          CPX #$3a
           BCC asts_rt  ; X < 10
-          PHA  
-          TXA  
+          PHA
+          TXA
           SBC #10      ; X -= 10
-          TAX  
-          PLA  
+          TAX
+          PLA
           INY          ; Y = 1
-asts_rt   RTS  
+asts_rt   RTS
 
 
 ; **************
@@ -332,57 +354,57 @@ asts_rt   RTS
 FORINT_01 INY
           STX LV0
           STA LV1
-          TXA  
+          TXA
           SBC #<10000
-          TAX  
+          TAX
           LDA LV1
           SBC #>10000
           BCS FORINT_01
           STY NUMBER
           LDX LV0
           LDA LV1
-          LDY #$2f 
-          SEC  
+          LDY #$2f
+          SEC
 FORINT_02 INY
           STX LV0
           STA LV1
-          TXA  
+          TXA
           SBC #<1000
-          TAX  
+          TAX
           LDA LV1
           SBC #>1000
           BCS FORINT_02
           STY NUMBER+1
           LDX LV0
           LDA LV1
-          LDY #$2f 
-          SEC  
+          LDY #$2f
+          SEC
 FORINT_03 INY
           STX LV0
           STA LV1
-          TXA  
-          SBC #100 
-          TAX  
+          TXA
+          SBC #100
+          TAX
           LDA LV1
           SBC #0
           BCS FORINT_03
           STY NUMBER+2
           LDA LV0
-          LDY #$2f 
-          SEC  
+          LDY #$2f
+          SEC
 FORINT_04 INY
           SBC #10
           BCS FORINT_04
           STY NUMBER+3
-          ADC #$3a 
+          ADC #$3a
           STA NUMBER+4
           LDX #0
-          LDA #' ' 
+          LDA #' '
 FORINT_05 LDY NUMBER,X
-          CPY #'0' 
+          CPY #'0'
           BNE FORINT_06
           STA NUMBER,X
-          INX  
+          INX
           CPX #4
           BCC FORINT_05
 FORINT_06 RTS
@@ -411,7 +433,7 @@ ShUn10    STX Reverse
 ShUn20    JSR PutCharR
           LDA #' '
           JMP PutChar
-          
+
 ; *********
   ShowDrive
 ; *********
@@ -481,7 +503,7 @@ FoFi50    LDA (STP),Y
           BNE FoFi40
           INC Entries
 FoFi99    RTS
-          
+
 
 ; *************
   FormatEntries
@@ -512,7 +534,7 @@ FoEn20    LDA EOD         ; check for End Of Directory
           CMP BP
           LDA EOD+1
           SBC BP+1
-          BCS FoEn10         
+          BCS FoEn10
 FoEn99    RTS
 
 
@@ -549,6 +571,14 @@ P2C99     RTS
           ADC #2
           CMP Select
           BNE ShEn10
+          LDA EntryLo,X
+          STA SelectionLo
+          LDA EntryHi,X
+          STA SelectionHi
+          LDA BP
+          STA SelPtr
+          LDA BP+1
+          STA SelPtr+1
           LDY #$80            ; selected
 ShEn10    STY Reverse
           LDA EntryLo,X
@@ -590,7 +620,7 @@ ShoE20    INX
           CPX LastLine
           BCS ShoE99
           TXA
-          ADC FirstLine  ; Carry is clear 
+          ADC FirstLine  ; Carry is clear
           CMP Entries
           BCC ShoE10
 ShoE99    RTS
@@ -605,13 +635,13 @@ ShoE99    RTS
           CMP #2
           BCC RiSe99     ; Drive
           CLC
-          ADC #19
+          ADC #18
           CMP Entries
           BCS RiSe99
           ADC #2
           STA Select
 RiSe99    RTS
-          
+
 
 
 ; **********
@@ -623,11 +653,11 @@ RiSe99    RTS
           BEQ DecSelect  ; Unit <- Drive
           CMP #23
           BCC LeSe99
-          SBC #21
+          SBC #20
           STA Select
 LeSe99    RTS
-          
-          
+
+
 ; *********
   IncSelect
 ; *********
@@ -661,9 +691,9 @@ InSe30    LDX #1
           STX Select          ; wrap around
 InSe40    INC Select
 InSe99    RTS
-          
-          
-          
+
+
+
 ; *********
   DecSelect
 ; *********
@@ -695,8 +725,8 @@ DeSe20    DEC Select
 DeSe30    INX
           STX Select          ; wrap around
 DeSe99    RTS
-          
-          
+
+
 ; *************
   ShowSelection
 ; *************
@@ -772,7 +802,7 @@ DeVa99    RTS
           JSR Repaint
           PLA
 MaLo02    CMP #3          ; STOP key
-          BEQ MaLo99    
+          BEQ MaLo99
           CMP #TAB
           BEQ MaLo85
           CMP #CDOWN
@@ -805,9 +835,10 @@ MaLo35    CMP #'H'
           BNE MaLo40
           JSR ShowHelp
           JMP MainLoop
-MaLo40
-          ;BRK
-          JMP MainLoop
+MaLo40    CMP #13
+          BNE MaLo45
+          JMP Flash
+MaLo45    JMP MainLoop
 MaLo85    JSR IncSelect
 MaLo90    JSR ShowSelection
           JMP MainLoop
@@ -870,6 +901,7 @@ Repa10    RTS
           JSR Detect_BASIC_version
           JSR Detect_Screen_Width
           JSR SetupScreen
+          JSR Repaint
           JSR SetupEntries
           JSR Init
           JSR Reload
@@ -904,6 +936,10 @@ Repa10    RTS
   SetupScreen
 ; ***********
 
+          LDA #CLR
+          JSR CHROUT          ; clear screen
+          LDA #130
+          JSR CHROUT          ; legacy character set
           LDA #<Screen
           LDX #>Screen
           LDY #0
@@ -1176,20 +1212,20 @@ PaMa10    JSR PaintPage
 
           LDA Unit
           STA FA
-          JSR TALK 
-          LDA #$6f 
-          JSR TKSA 
+          JSR TALK
+          LDA #$6f
+          JSR TKSA
           LDY #0
 gss_10    JSR ACPTR
-          CMP #' ' 
+          CMP #' '
           BCC gss_20
           JSR PET2SCR
           STA DiskStatus,Y
-          INY  
+          INY
           CPY #40
           BCC gss_10
 gss_20    JSR UNTLK
-          RTS  
+          RTS
 
 
 ; *************
@@ -1243,7 +1279,7 @@ LoDi20    JSR UNTLK
           STY EOD
           LDA BP+1
           STA EOD+1
-LoDi99    RTS
+LoDi99    JMP Close_Disk_File
 
 ; **************
   GetLoadAddress
@@ -1256,7 +1292,7 @@ LoDi99    RTS
           LDA (BP),Y
           CMP #'P'            ; PRG files only
           BNE GLA99
-          LDA Unit            ; send LOAD "Filenamen" to Unit
+          LDA Unit            ; send LOAD "Filename" to Unit
           STA FA
           JSR LISTEN
           LDA #$f0
@@ -1292,7 +1328,7 @@ GLA20     JSR UNLSN
           TXA
           STA (BP),Y
           JSR UNTLK
-GLA99     RTS
+GLA99     JMP Close_Disk_File
 
 ; **********
   ASCII_Hex
@@ -1300,24 +1336,114 @@ GLA99     RTS
 
 ; Input:  (A)
 ; Output: (X) = High nibble (A) = Low nibble
-         PHA  
+         PHA
          LSR A
          LSR A
          LSR A
          LSR A
-         ORA #'0' 
-         CMP #$3a 
+         ORA #'0'
+         CMP #$3a
          BCC Hex_11
          ADC #6
-Hex_11   TAX  
-         PLA  
+Hex_11   TAX
+         PLA
          AND #15
-         ORA #'0' 
-         CMP #$3a 
+         ORA #'0'
+         CMP #$3a
          BCC Hex_12
          ADC #6
-Hex_12   RTS  
+Hex_12   RTS
+
+; *********
+  Load_File
+; *********
+
+          JSR Send_Filename
+          JSR TALK            ; send primary address
+          LDA #$60
+          JSR TKSA            ; send secondary address
+          JSR ACPTR           ; read first byte
+          TAY                 ; flash start address
+          LDA STATUS          ; check time out bit
+          BEQ LoFi_22         ; no time out -> continue
+;         JMP Display_File_Not_Found
+LoFi_22   JSR ACPTR
+          STA EAL+1           ; flash start address
+          LDA #0
+          STA EAL
+          STA STATUS
+LoFi_30   JSR ACPTR           ; read next byte
+          STA (EAL),Y         ; store byte
+LoFi_40   LDA (EAL),Y         ; this comparison is false for an
+          CMP (EAL),Y         ; unfinished write cycle to EEPROM
+          BNE LoFi_40
+          INY                 ; increment write address
+          BNE LoFi_60
+          INC EAL+1
+LoFi_60   LDA STATUS          ; Get EOF marker in bit 6
+          BEQ LoFi_30         ; repeat until EOF or ERROR
+          STY EAL             ; store end address+1 in EAL
+          JSR UNTLK
+
+; ***************
+  Close_Disk_File
+; ***************
+
+          JSR LISTEN
+          LDA #$e0
+          JSR SECOND
+          JMP UNLSN
+
+; *************
+  Send_Filename
+; *************
+
+          JSR LISTEN
+          LDA #$f0
+          JSR SECOND
+          LDY #0
+SeFi_10   LDA (FNADR),Y
+          JSR CIOUT
+          INY
+          CPY FNLEN
+          BCC SeFi_10
+SeFi_20   JMP UNLSN
+
+; **************
+  Setup_Filename
+; **************
+
+          CLC
+          LDA SelPtr
+          ADC #4
+          STA TP
+          LDA SelPtr+1
+          ADC #0
+          STA TP+1
+          LDY #0
+SpFi_10   LDA (TP),Y
+          CMP #$22
+          BEQ SpFi_20
+          STA DOS_Filename,Y
+          INY
+          CPY #16
+          BCC SpFi_10
+SpFi_20   STY FNLEN
+          LDA #<DOS_Filename
+          STA FNADR
+          LDA #>DOS_Filename
+          STA FNADR+1
+          RTS
+
+
+; *****
+  Flash
+; *****
+
+          JSR Setup_Filename
+          JSR Load_File
+;         JSR Verify_File
+          RTS
 
 
 EOP       ; END-OF-PROGRAM
-

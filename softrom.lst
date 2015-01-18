@@ -1,1954 +1,2150 @@
-    1               ; **********************************************
-    2               ; ************* SoftROM EEPROM tool ************
-    3               ; **********************************************
-    4               ;
-    5               ; Assemble with "The Black Smurf Assembler"
-    6               ; freely available from https://github.com/Edilbert/BSA
-    7               ;
-    8               ; Copyright (c) 2014 Nils Eilers <nils.eilers@gmx.de>
-    9               ; This work is free. You can redistribute it and/or modify it under the
-   10               ; terms of the Do What The Fuck You Want to Public License, Version 2,
-   11               ; as published by Sam Hocevar. See the COPYING file for more details.
-   12               
-   13               ; ************
-   14               ; * Keycodes *
-   15               ; ************
-   16               
-   17 0009          TAB        =   9     ; Tab
-   18 000d          CR         =  13     ; Carriage Return
-   19 0013          HOME       =  19     ; Home
-   20 0014          DEL        =  20     ; Delete
-   21 0093          CLR        = 147     ; Clear
-   22 0011          CDOWN      =  17     ; Cursor Down
-   23 001d          CRIGHT     =  29     ; Cursor Right
-   24 0091          CUP        = 145     ; Cursor Up
-   25 009d          CLEFT      = 157     ; Cursor Left
-   26               
-   27               ; ****************
-   28               ; * Screen codes *
-   29               ; ****************
-   30               
-   31 0000          C8296 = 0
-   32               
-   33 0001 FALSE    #if C8296
-   34 SKIP          HOR_BAR    = 102     ; -
-   35 SKIP          VER_BAR    =  97     ; |
-   36 SKIP          UL         = 104     ; upper left
-   37 SKIP          UR         = 106     ; upper right
-   38 SKIP          LL         =  98     ; lower left
-   39 SKIP          LR         = 100     ; lower right
-   40 SKIP          TL         = 101     ; T left
-   41 SKIP          TR         = 103     ; T right
-   42 SKIP          TU         = 105     ; T upper
-   43 SKIP          TB         =  99     ; T bottom
-   44 SKIP          
-   45               #else
-   46               
-   47 0040          HOR_BAR    =  64     ; -
-   48 005d          VER_BAR    =  93     ; |
-   49 0070          UL         = 112     ; upper left
-   50 006e          UR         = 110     ; upper right
-   51 006d          LL         = 109     ; lower left
-   52 007d          LR         = 125     ; lower right
-   53 006b          TL         = 107     ; T left
-   54 0073          TR         = 115     ; T right
-   55               #endif
-   56               
-   57 0019          ROWS       =  25
-   58               
-   59               ; ****************************
-   60               ; * Some Zero Page Variables *
-   61               ; ****************************
-   62               
-   63 005e          BP        = $5e      ; Buffer Pointer
-   64 0060          STP       = $60      ; String Pointer
-   65 0062          SP        = $62      ; SCREEN Pointer
-   66               
-   67               ; ************************
-   68               ; * CBM Kernal Variables *
-   69               ; ************************
-   70               
-   71 0096          STATUS    = $96      ; Status byte
-   72 009b          STKEY     = $9b      ; Stop key pressed?
-   73 00a7          BLNSW     = $a7      ; Blink switch
-   74 00a8          BLNCT     = $a8      ; Blink count
-   75 00aa          BLNON     = $aa      ; Blink On
-   76 00d4          FA        = $d4      ; First Address
-   77               
-   78               ; *************
-   79               ; * Constants *
-   80               ; *************
-   81               
-   82 8000          Screen = $8000
-   83 0014          EntriesPerPage = 20
-   84               
-   85               ; *****************************************
-   86               ; * Put the buffer after the program code *
-   87               ; *****************************************
-   88               
-   89 0e00          Buffer  = [EOP & $ff00] + $100
-   90 0008          PosDiskName =  8
-   91 001a          PosDiskID   = 26
-   92               
-   93               ; ***************************************************
-   94               ; * The CBM 8000 Kernal has no jump table for these *
-   95               ; ***************************************************
-   96               
-   97 b403          READY   = $b403 ; $b3ff ; $b406 omitting prompt
-   98 f0d2          TALK    = $f0d2
-   99 f0d5          LISTEN  = $f0d5
-  100 f143          SECOND  = $f143
-  101 f193          TKSA    = $f193
-  102 f19e          CIOUT   = $f19e
-  103 f1ae          UNTLK   = $f1ae
-  104 f1b9          UNLSN   = $f1b9
-  105 f1c0          ACPTR   = $f1c0
-  106 ffd2          BSOUT   = $ffd2
-  107 ffe4          GETIN   = $ffe4
-  108               
-  109               ; ***************
-  110               ; * Print Macro *
-  111               ; ***************
-  112               
-  113               MACRO MAC_Print(lab)
-  114                         LDY #<lab
-  115                         LDA #>lab
-  116                         LDX #?lab
-  117                         JSR PrintText
-  118               ENDMAC
-  119               
-  120               MACRO MAC_Plot(Row,Col,Char)
-  121                         LDA #Char
-  122                         LDX #Row
-  123                         LDY #Col
-  124                         JSR PlotAt
-  125               ENDMAC 
-  126               
-  127               MACRO MAC_PutString(Row,Col,Text)
-  128                         LDX #Row
-  129                         LDY #Col
-  130                         JSR GotoXY
-  131                         LDX #<Text
-  132                         LDY #>Text
-  133                         JSR PutString
-  134               ENDMAC
-  135               
-  136               ; **********************************
-  137               ; * BASIC header for program start *
-  138               ; **********************************
-  139               
-  140 0401          START   = $0401
-  141               
-  142 0401          * = START ; *** BASIC ***  CBM / PET series
-  143               
-  145 0401                  .STORE START,EOP-START,"softrom.prg"
-  146               
-  147 0401 27 04    Link      .WORD EndLink
-  148               
-  149               ; **********
-  150 0403            Linenumber
-  151               ; **********
-  152               
-  153 0403 de 07              .WORD 2014 
-  154               
-  155               ; **********
-  156 0405            SysCommand
-  157               ; **********
-  158               
-  159 0405 9e                   .BYTE $9e       ; SYS token 
-  160 0406 28 31 30 StartML     .BYTE "(1065)"
-  161 040c 3a 8f                .BYTE ':',$8f   ; REM token
-  162 040e 20 53 4f             .BYTE " SOFTROM EEPROM TOOL 0.1"
-  163 0426 00       LineEnd     .BYTE 0 
-  164 0427 00 00    EndLink     .WORD 0
-  165               
-  166 0429 4c 1d 0a           JMP Main
-  167               
-  168 042c 30 30 30 NUMBER      .BYTE "00000 "
-  169 0432 55 4e 49 UnitText    .BYTE 'unit:',0
-  170 0438 44 52 49 DriveText   .BYTE 'drive:',0
-  171 043f 3c 48 3e HelpText    .BYTE "<H> = HELP",0
-  172 044a 20 53 4f ProgramText .BYTE " SOFTROM EEPROM TOOL (C) NILS EILERS & BS ",0
-  173 0475 52 45 41 Msg_READY   .BYTE "READY.",0
-  174 047c 50       Cols        .BYTE 80
-  175 047d 00       Count       .BYTE  0
-  176 047e 00       CursorRow   .BYTE  0
-  177 047f 00       CursorCol   .BYTE  0
-  178 0480 00       Entries     .BYTE  0
-  179 0481 00       FirstLine   .BYTE  0
-  180 0482 14       LastLine    .BYTE 20
-  181 0483 00       HelpScreen  .BYTE  0
-  182 0484 02       Pages       .BYTE  2
-  183 0485 00 00 00 ScreenLo    .FILL 25 (0) ; 25 bytes
-  184 049e 00 00 00 ScreenHi    .FILL 25 (0) ; 25 bytes
-  185 04b7 00 00 00 EntryLo     .FILL 40 (0) ; 40 bytes
-  186 04df 00 00 00 EntryHi     .FILL 40 (0) ; 40 bytes
-  187 0507 00       Page        .BYTE  0
-  188 0508 00       Offset      .BYTE  0
-  189 0509 08       Unit        .BYTE  8
-  190 050a 30       Drive       .BYTE  '0'
-  191 050b 00       LV0         .BYTE  0
-  192 050c 00       LV1         .BYTE  0
-  193 050d 00       Reverse     .BYTE  0
-  194 050e 02       Select      .BYTE  2
-  195 050f 00       FirstFile   .BYTE  0  ; First file on display
-  196 0510 00 00    SOD         .WORD  0  ; Start Of Directory
-  197 0512 00 00    EOD         .WORD  0  ; End Of Directory
-  198               
-  199 80c9          DiskStatus = $8000 + 201
-  200               
-  201 001e          HelpLen   = 30
-  202 0007          HelpLines =  7
-  203 0514 55 50 2f HelpWin     .BYTE "UP/DN  MOVE SELECTION BAR    ",0
-  204 0532 2b 20 2f             .BYTE "+ / -  CHANGE UNIT OR DRIVE #",0
-  205 0550 48 4f 4d             .BYTE "HOME   RESET THE SCREEN      ",0
-  206 056e 52 45 54             .BYTE "RETURN FLASH EEPROM FROM FILE",0
-  207 058c 53 54 4f             .BYTE "STOP   QUIT THE PROGRAM      ",0
-  208 05aa 48 20 20             .BYTE "H      SHOW THIS HELP WINDOW ",0
-  209 05c8 45 53 43             .BYTE "ESC    CLOSE HELP WINDOW     ",0
-  210               
-  211               
-  212               ; ********
-  213 05e6            ShowHelp
-  214               ; ********
-  215               
-  216 05e6 a9 00              LDA #0
-  217 05e8 8d 08 05           STA Offset
-  218 05eb a2 35              LDX #53
-  219 05ed 8e 7d 04           STX Count
-  220 05f0 a2 08              LDX #8
-  221 05f2 a0 18              LDY #24
-  222 05f4 20 90 0a           JSR HorLine
-  223 05f7 a2 10              LDX #16
-  224 05f9 a0 18              LDY #24
-  225 05fb 20 90 0a           JSR HorLine
-  226 05fe a2 10              LDX #16
-  227 0600 8e 7d 04           STX Count
-  228 0603 a2 08              LDX #8
-  229 0605 a0 17              LDY #23
-  230 0607 20 ab 0a           JSR VerLine
-  231 060a a2 08              LDX #8
-  232 060c a0 35              LDY #53
-  233 060e 20 ab 0a           JSR VerLine
-  234                         MAC_Plot( 8,23,UL)
-  234 0611 a9 70              LDA #UL
-  234 0613 a2 08              LDX #8
-  234 0615 a0 17              LDY #23
-  234 0617 20 34 0b           JSR PlotAt
-  234               
-  235                         MAC_Plot( 8,53,UR)
-  235 061a a9 6e              LDA #UR
-  235 061c a2 08              LDX #8
-  235 061e a0 35              LDY #53
-  235 0620 20 34 0b           JSR PlotAt
-  235               
-  236                         MAC_Plot(16,23,LL)
-  236 0623 a9 6d              LDA #LL
-  236 0625 a2 10              LDX #16
-  236 0627 a0 17              LDY #23
-  236 0629 20 34 0b           JSR PlotAt
-  236               
-  237                         MAC_Plot(16,53,LR)
-  237 062c a9 7d              LDA #LR
-  237 062e a2 10              LDX #16
-  237 0630 a0 35              LDY #53
-  237 0632 20 34 0b           JSR PlotAt
-  237               
-  238 0635 a9 07              LDA #HelpLines
-  239 0637 8d 7d 04           STA Count
-  240 063a a2 09              LDX #9
-  241 063c a0 18              LDY #24
-  242 063e 20 c6 0a           JSR GotoXY
-  243 0641 a2 14              LDX #<HelpWin
-  244 0643 a0 05              LDY #>HelpWin
-  245 0645 20 0d 0b ShHe10    JSR PutString
-  246 0648 ae 7e 04           LDX CursorRow
-  247 064b e8                 INX
-  248 064c a0 18              LDY #24
-  249 064e 20 c6 0a           JSR GotoXY
-  250 0651 18                 CLC
-  251 0652 a5 60              LDA STP
-  252 0654 69 1e              ADC #HelpLen
-  253 0656 aa                 TAX
-  254 0657 a5 61              LDA STP+1
-  255 0659 69 00              ADC #0
-  256 065b a8                 TAY
-  257 065c ce 7d 04           DEC Count
-  258 065f d0 e4              BNE ShHe10
-  259 0661 a9 ff              LDA #$ff
-  260 0663 8d 83 04           STA HelpScreen
-  261 0666 60                 RTS
-  262               
-  263                         
-  264               
-  265               ; ****
-  266 0667            STOP
-  267               ; ****
-  268 0667 a5 9b              LDA STKEY
-  269 0669 c9 ef              CMP #$ef
-  270 066b 60                 RTS
-  271               
-  272               ; **********
-  273 066c            Error_Beep
-  274               ; **********
-  275               
-  276 066c a9 07              LDA #7
-  277 066e 4c d2 ff           JMP BSOUT
-  278               
-  279               ; *********
-  280 0671            PrintText
-  281               ; *********
-  282               
-  283 0671 84 62              STY SP
-  284 0673 85 63              STA SP+1
-  285 0675 a0 00              LDY #0
-  286 0677 b1 62    PrTe_10   LDA (SP),Y
-  287 0679 20 d2 ff           JSR BSOUT
-  288 067c c8                 INY
-  289 067d ca                 DEX
-  290 067e d0 f7              BNE PrTe_10
-  291 0680 60                 RTS
-  292               
-  293               ; ********************
-  294 0681            Flush_Keyboard_Queue
-  295               ; ********************
-  296               
-  297 0681 20 e4 ff           JSR GETIN
-  298 0684 d0 fb              BNE Flush_Keyboard_Queue
-  299 0686 60                 RTS  
-  300               
-  301               ; ***********
-  302 0687            FormatByte
-  303               ; ***********
-  304               
-  305               ; Convert binary number in (A) to
-  306               ; three decimal digits in (Y),(X) and (A)
-  307               
-  308 0687 a0 30              LDY #'0'      ; 100
-  309 0689 a2 2f              LDX #'0'-1    ;  10
-  310 068b 38                 SEC  
-  311 068c e8       asts_01   INX  
-  312 068d e9 0a              SBC #10
-  313 068f b0 fb              BCS asts_01
-  314 0691 69 3a              ADC #$3a 
-  315 0693 e0 3a              CPX #$3a 
-  316 0695 90 07              BCC asts_rt  ; X < 10
-  317 0697 48                 PHA  
-  318 0698 8a                 TXA  
-  319 0699 e9 0a              SBC #10      ; X -= 10
-  320 069b aa                 TAX  
-  321 069c 68                 PLA  
-  322 069d c8                 INY          ; Y = 1
-  323 069e 60       asts_rt   RTS  
-  324               
-  325               
-  326               ; **************
-  327 069f            FormatInteger
-  328               ; **************
-  329               
-  330 069f a0 2f              LDY #$2f           ; X = low  byte
-  331 06a1 38                 SEC                ; A = high byte
-  332 06a2 c8       FORINT_01 INY
-  333 06a3 8e 0b 05           STX LV0
-  334 06a6 8d 0c 05           STA LV1
-  335 06a9 8a                 TXA  
-  336 06aa e9 10              SBC #<10000
-  337 06ac aa                 TAX  
-  338 06ad ad 0c 05           LDA LV1
-  339 06b0 e9 27              SBC #>10000
-  340 06b2 b0 ee              BCS FORINT_01
-  341 06b4 8c 2c 04           STY NUMBER
-  342 06b7 ae 0b 05           LDX LV0
-  343 06ba ad 0c 05           LDA LV1
-  344 06bd a0 2f              LDY #$2f 
-  345 06bf 38                 SEC  
-  346 06c0 c8       FORINT_02 INY
-  347 06c1 8e 0b 05           STX LV0
-  348 06c4 8d 0c 05           STA LV1
-  349 06c7 8a                 TXA  
-  350 06c8 e9 e8              SBC #<1000
-  351 06ca aa                 TAX  
-  352 06cb ad 0c 05           LDA LV1
-  353 06ce e9 03              SBC #>1000
-  354 06d0 b0 ee              BCS FORINT_02
-  355 06d2 8c 2d 04           STY NUMBER+1
-  356 06d5 ae 0b 05           LDX LV0
-  357 06d8 ad 0c 05           LDA LV1
-  358 06db a0 2f              LDY #$2f 
-  359 06dd 38                 SEC  
-  360 06de c8       FORINT_03 INY
-  361 06df 8e 0b 05           STX LV0
-  362 06e2 8d 0c 05           STA LV1
-  363 06e5 8a                 TXA  
-  364 06e6 e9 64              SBC #100 
-  365 06e8 aa                 TAX  
-  366 06e9 ad 0c 05           LDA LV1
-  367 06ec e9 00              SBC #0
-  368 06ee b0 ee              BCS FORINT_03
-  369 06f0 8c 2e 04           STY NUMBER+2
-  370 06f3 ad 0b 05           LDA LV0
-  371 06f6 a0 2f              LDY #$2f 
-  372 06f8 38                 SEC  
-  373 06f9 c8       FORINT_04 INY
-  374 06fa e9 0a              SBC #10
-  375 06fc b0 fb              BCS FORINT_04
-  376 06fe 8c 2f 04           STY NUMBER+3
-  377 0701 69 3a              ADC #$3a 
-  378 0703 8d 30 04           STA NUMBER+4
-  379 0706 a2 00              LDX #0
-  380 0708 a9 20              LDA #' ' 
-  381 070a bc 2c 04 FORINT_05 LDY NUMBER,X
-  382 070d c0 30              CPY #'0' 
-  383 070f d0 08              BNE FORINT_06
-  384 0711 9d 2c 04           STA NUMBER,X
-  385 0714 e8                 INX  
-  386 0715 e0 04              CPX #4
-  387 0717 90 f1              BCC FORINT_05
-  388 0719 60       FORINT_06 RTS
-  389               
-  390               
-  391               ; ********
-  392 071a            ShowUnit
-  393               ; ********
-  394               
-  395 071a a2 00              LDX #0
-  396 071c ac 0e 05           LDY Select
-  397 071f d0 02              BNE ShUn10
-  398 0721 a2 80              LDX #$80
-  399 0723 8e 0d 05 ShUn10    STX Reverse
-  400 0726 a2 02              LDX #2
-  401 0728 a0 06              LDY #6
-  402 072a 20 c6 0a           JSR GotoXY
-  403 072d ad 09 05           LDA Unit
-  404 0730 20 87 06           JSR FormatByte
-  405 0733 e0 30              CPX #'0'
-  406 0735 f0 06              BEQ ShUn20
-  407 0737 48                 PHA
-  408 0738 8a                 TXA
-  409 0739 20 ea 0a           JSR PutCharR
-  410 073c 68                 PLA
-  411 073d 20 ea 0a ShUn20    JSR PutCharR
-  412 0740 a9 20              LDA #' '
-  413 0742 4c cd 0a           JMP PutChar
-  414                         
-  415               ; *********
-  416 0745            ShowDrive
-  417               ; *********
-  418               
-  419 0745 a2 00              LDX #0
-  420 0747 ac 0e 05           LDY Select
-  421 074a 88                 DEY
-  422 074b d0 02              BNE ShDr10
-  423 074d a2 80              LDX #$80
-  424 074f 8e 0d 05 ShDr10    STX Reverse
-  425 0752 ad 0a 05           LDA Drive
-  426 0755 a2 02              LDX #2
-  427 0757 a0 0f              LDY #15
-  428 0759 4c 49 0b           JMP PlotAtR
-  429               
-  430               
-  431               ; ************
-  432 075c            ShowDiskName
-  433               ; ************
-  434               
-  435 075c a2 02              LDX #2
-  436 075e a0 12              LDY #18
-  437 0760 20 c6 0a           JSR GotoXY
-  438 0763 a9 20              LDA #' '
-  439 0765 8d 18 0e           STA Buffer + PosDiskName + 16 ; delete quote
-  440 0768 a9 00              LDA #0
-  441 076a 8d 1c 0e           STA Buffer + PosDiskName + 20 ; mark string end
-  442 076d a2 08              LDX #<[Buffer + PosDiskName]
-  443 076f a0 0e              LDY #>[Buffer + PosDiskName]
-  444 0771 4c 0d 0b           JMP PutString
-  445               
-  446               ; **************
-  447 0774            FormatFilename
-  448               ; **************
-  449               
-  450 0774 a5 5e              LDA BP
-  451 0776 85 60              STA STP
-  452 0778 a5 5f              LDA BP+1
-  453 077a 85 61              STA STP+1
-  454 077c a0 02              LDY #2
-  455 077e b1 5e              LDA (BP),Y      ; Blocks low
-  456 0780 aa                 TAX
-  457 0781 c8                 INY
-  458 0782 b1 5e              LDA (BP),Y      ; Blocks high
-  459 0784 20 9f 06           JSR FormatInteger
-  460 0787 a0 00              LDY #0
-  461 0789 b9 2e 04 FoFi10    LDA NUMBER+2,Y
-  462 078c 91 5e              STA (BP),Y
-  463 078e c8                 INY
-  464 078f c0 04              CPY #4
-  465 0791 90 f6              BCC FoFi10
-  466 0793 b1 5e              LDA (BP),Y
-  467 0795 c9 20              CMP #' '
-  468 0797 d0 1c              BNE FoFi99
-  469 0799 e6 60    FoFi20    INC STP
-  470 079b b1 60              LDA (STP),Y
-  471 079d c9 20              CMP #' '
-  472 079f f0 f8              BEQ FoFi20
-  473 07a1 c9 22              CMP #$22
-  474 07a3 f0 f4              BEQ FoFi20
-  475 07a5 91 5e              STA (BP),Y
-  476 07a7 c8       FoFi40    INY
-  477 07a8 c0 20              CPY #$20
-  478 07aa b0 09              BCS FoFi99
-  479 07ac b1 60    FoFi50    LDA (STP),Y
-  480 07ae 91 5e              STA (BP),Y
-  481 07b0 d0 f5              BNE FoFi40
-  482 07b2 ee 80 04           INC Entries
-  483 07b5 60       FoFi99    RTS
-  484                         
-  485               
-  486               ; *************
-  487 07b6            FormatEntries
-  488               ; *************
-  489               
-  490 07b6 a9 00              LDA #0
-  491 07b8 8d 80 04           STA Entries
-  492 07bb a9 20              LDA #$20        ; 1st. file
-  493 07bd 85 5e              STA BP
-  494 07bf a9 0e              LDA #>Buffer
-  495 07c1 85 5f              STA BP+1
-  496 07c3 a0 04    FoEn10    LDY #4          ; after link and #
-  497 07c5 b1 5e              LDA (BP),Y
-  498 07c7 c9 20              CMP #' '        ; for filename must be blank
-  499 07c9 d0 24              BNE FoEn99
-  500 07cb 20 74 07           JSR FormatFilename
-  501 07ce 20 d0 0c           JSR GetLoadAddress
-  502 07d1 ae 80 04           LDX Entries
-  503 07d4 ca                 DEX
-  504 07d5 20 06 08           JSR ShowEntry
-  505 07d8 18                 CLC
-  506 07d9 a5 5e              LDA BP
-  507 07db 69 20              ADC #$20
-  508 07dd 85 5e              STA BP
-  509 07df 90 02              BCC FoEn20
-  510 07e1 e6 5f              INC BP+1
-  511 07e3 ad 12 05 FoEn20    LDA EOD         ; check for End Of Directory
-  512 07e6 c5 5e              CMP BP
-  513 07e8 ad 13 05           LDA EOD+1
-  514 07eb e5 5f              SBC BP+1
-  515 07ed b0 d4              BCS FoEn10         
-  516 07ef 60       FoEn99    RTS
-  517               
-  518               
-  519               ; *******
-  520 07f0            PET2SCR
-  521               ; *******
-  522               
-  523 07f0 c9 41              CMP #$41
-  524 07f2 90 11              BCC P2C99
-  525 07f4 c9 5b              CMP #$5b
-  526 07f6 b0 03              BCS P2C10
-  527 07f8 29 1f              AND #$1f    ; a - z
-  528 07fa 60                 RTS
-  529 07fb c9 c1    P2C10     CMP #$c1
-  530 07fd 90 06              BCC P2C99
-  531 07ff c9 ca              CMP #$ca
-  532 0801 b0 02              BCS P2C99
-  533 0803 29 7f              AND #$7f    ; A - Z
-  534 0805 60       P2C99     RTS
-  535               
-  536               ; *********
-  537 0806            ShowEntry
-  538               ; *********
-  539               
-  540               ; Input: (X)  = entry # (unchanged)
-  541               ;        (BP) = buffer pointer
-  542               ; Used:  (A),(Y)
-  543               
-  544 0806 ec 82 04           CPX LastLine
-  545 0809 b0 33              BCS ShEn99
-  546 080b a0 00              LDY #0              ; no reverse
-  547 080d 8a                 TXA                 ; entry # in (X)
-  548 080e 18                 CLC
-  549 080f 69 02              ADC #2
-  550 0811 cd 0e 05           CMP Select
-  551 0814 d0 02              BNE ShEn10
-  552 0816 a0 80              LDY #$80            ; selected
-  553 0818 8c 0d 05 ShEn10    STY Reverse
-  554 081b bd b7 04           LDA EntryLo,X
-  555 081e 85 62              STA SP
-  556 0820 bd df 04           LDA EntryHi,X
-  557 0823 85 63              STA SP+1
-  558 0825 a0 00              LDY #0
-  559 0827 b1 5e    ShEn20    LDA (BP),Y
-  560 0829 f0 13              BEQ ShEn99
-  561 082b c9 22              CMP #$22            ; hide quote
-  562 082d d0 02              BNE ShEn30
-  563 082f a9 20              LDA #' '
-  564 0831 20 f0 07 ShEn30    JSR PET2SCR
-  565 0834 0d 0d 05           ORA Reverse
-  566 0837 91 62              STA (SP),Y
-  567 0839 c8                 INY
-  568 083a c0 20              CPY #32
-  569 083c 90 e9              BCC ShEn20
-  570 083e 60       ShEn99    RTS
-  571               
-  572               
-  573               ; ***********
-  574 083f            ShowEntries
-  575               ; ***********
-  576               
-  577 083f ad 10 05           LDA SOD
-  578 0842 85 5e              STA BP
-  579 0844 ad 11 05           LDA SOD+1
-  580 0847 85 5f              STA BP+1
-  581 0849 a2 00              LDX #0
-  582 084b 20 06 08 ShoE10    JSR ShowEntry
-  583 084e 18                 CLC
-  584 084f a5 5e              LDA BP
-  585 0851 69 20              ADC #$20
-  586 0853 85 5e              STA BP
-  587 0855 90 02              BCC ShoE20
-  588 0857 e6 5f              INC BP+1
-  589 0859 e8       ShoE20    INX
-  590 085a ec 82 04           CPX LastLine
-  591 085d b0 09              BCS ShoE99
-  592 085f 8a                 TXA
-  593 0860 6d 81 04           ADC FirstLine  ; Carry is clear 
-  594 0863 cd 80 04           CMP Entries
-  595 0866 90 e3              BCC ShoE10
-  596 0868 60       ShoE99    RTS
-  597               
-  598               
-  599               ; ***********
-  600 0869            RightSelect
-  601               ; ***********
-  602               
-  603 0869 ad 0e 05           LDA Select
-  604 086c f0 23              BEQ IncSelect  ; Unit -> Drive
-  605 086e c9 02              CMP #2
-  606 0870 90 0d              BCC RiSe99     ; Drive
-  607 0872 18                 CLC
-  608 0873 69 13              ADC #19
-  609 0875 cd 80 04           CMP Entries
-  610 0878 b0 05              BCS RiSe99
-  611 087a 69 02              ADC #2
-  612 087c 8d 0e 05           STA Select
-  613 087f 60       RiSe99    RTS
-  614                         
-  615               
-  616               
-  617               ; **********
-  618 0880            LeftSelect
-  619               ; **********
-  620               
-  621 0880 ad 0e 05           LDA Select
-  622 0883 c9 01              CMP #1
-  623 0885 f0 42              BEQ DecSelect  ; Unit <- Drive
-  624 0887 c9 17              CMP #23
-  625 0889 90 05              BCC LeSe99
-  626 088b e9 15              SBC #21
-  627 088d 8d 0e 05           STA Select
-  628 0890 60       LeSe99    RTS
-  629                         
-  630                         
-  631               ; *********
-  632 0891            IncSelect
-  633               ; *********
-  634               
-  635               ; Increment selection
-  636               ;    0 : unit
-  637               ;    1 : drive
-  638               ;  > 1 : filename
-  639               
-  640 0891 ae 0e 05           LDX Select
-  641 0894 f0 2f              BEQ InSe40          ; Unit
-  642 0896 ca                 DEX
-  643 0897 f0 2c              BEQ InSe40          ; Drive
-  644 0899 ec 82 04           CPX LastLine
-  645 089c 90 1d              BCC InSe20
-  646 089e 18                 CLC                 ; Scroll display
-  647 089f ad 81 04           LDA FirstLine
-  648 08a2 6d 82 04           ADC LastLine
-  649 08a5 cd 80 04           CMP Entries
-  650 08a8 b0 16              BCS InSe30          ; At end alreay
-  651 08aa ee 81 04           INC FirstLine
-  652 08ad ad 10 05           LDA SOD             ; Advance SOD
-  653 08b0 69 20              ADC #$20
-  654 08b2 8d 10 05           STA SOD
-  655 08b5 90 03              BCC InSe10
-  656 08b7 ee 11 05           INC SOD+1
-  657 08ba 60       InSe10    RTS
-  658 08bb ec 80 04 InSe20    CPX Entries
-  659 08be 90 05              BCC InSe40          ; in range
-  660 08c0 a2 01    InSe30    LDX #1
-  661 08c2 8e 0e 05           STX Select          ; wrap around
-  662 08c5 ee 0e 05 InSe40    INC Select
-  663 08c8 60       InSe99    RTS
-  664                         
-  665                         
-  666                         
-  667               ; *********
-  668 08c9            DecSelect
-  669               ; *********
-  670               
-  671               ; Decrement selection
-  672               ;    0 : unit
-  673               ;    1 : drive
-  674               ;  > 1 : filename
-  675               
-  676 08c9 ae 0e 05           LDX Select
-  677 08cc e0 02              CPX #2              ; First file
-  678 08ce d0 17              BNE DeSe20
-  679 08d0 ad 81 04           LDA FirstLine       ; Scroll display
-  680 08d3 f0 12              BEQ DeSe20
-  681 08d5 ce 81 04           DEC FirstLine
-  682 08d8 38                 SEC
-  683 08d9 ad 10 05           LDA SOD
-  684 08dc e9 20              SBC #$20
-  685 08de 8d 10 05           STA SOD
-  686 08e1 b0 03              BCS DeSe10
-  687 08e3 ce 11 05           DEC SOD+1
-  688 08e6 60       DeSe10    RTS
-  689 08e7 ce 0e 05 DeSe20    DEC Select
-  690 08ea 10 0f              BPL DeSe99
-  691 08ec ae 80 04           LDX Entries
-  692 08ef ec 82 04           CPX LastLine
-  693 08f2 90 03              BCC DeSe30
-  694 08f4 ae 82 04           LDX LastLine
-  695 08f7 e8       DeSe30    INX
-  696 08f8 8e 0e 05           STX Select          ; wrap around
-  697 08fb 60       DeSe99    RTS
-  698                         
-  699                         
-  700               ; *************
-  701 08fc            ShowSelection
-  702               ; *************
-  703               
-  704 08fc 20 1a 07           JSR ShowUnit
-  705 08ff 20 45 07           JSR ShowDrive
-  706 0902 4c 3f 08           JMP ShowEntries
-  707               
-  708               
-  709               ; ********
-  710 0905            IncValue
-  711               ; ********
-  712               
-  713 0905 ae 0e 05           LDX Select
-  714 0908 d0 0c              BNE InVa10
-  715 090a ad 09 05           LDA Unit
-  716 090d c9 0b              CMP #11
-  717 090f b0 15              BCS InVa99
-  718 0911 ee 09 05           INC Unit
-  719 0914 d0 0d              BNE InVa20
-  720 0916 ca       InVa10    DEX
-  721 0917 d0 0d              BNE InVa99
-  722 0919 ad 0a 05           LDA Drive
-  723 091c c9 39              CMP #'9'
-  724 091e b0 06              BCS InVa99
-  725 0920 ee 0a 05           INC Drive
-  726 0923 20 ec 09 InVa20    JSR Reload
-  727 0926 60       InVa99    RTS
-  728               
-  729               ; ********
-  730 0927            DecValue
-  731               ; ********
-  732               
-  733 0927 ae 0e 05           LDX Select
-  734 092a d0 0c              BNE DeVa10
-  735 092c ad 09 05           LDA Unit
-  736 092f c9 09              CMP #9
-  737 0931 90 15              BCC DeVa99
-  738 0933 ce 09 05           DEC Unit
-  739 0936 d0 0d              BNE DeVa20
-  740 0938 ca       DeVa10    DEX
-  741 0939 d0 0d              BNE DeVa99
-  742 093b ad 0a 05           LDA Drive
-  743 093e c9 31              CMP #'1'
-  744 0940 90 06              BCC DeVa99
-  745 0942 ce 0a 05           DEC Drive
-  746 0945 20 ec 09 DeVa20    JSR Reload
-  747 0948 60       DeVa99    RTS
-  748               
-  749               
-  750               ; **********
-  751 0949            HomeSelect
-  752               ; **********
-  753               
-  754 0949 a9 00              LDA #0
-  755 094b 8d 0e 05           STA Select
-  756 094e 8d 81 04           STA FirstLine
-  757 0951 a9 20              LDA #$20
-  758 0953 8d 10 05           STA SOD
-  759 0956 a9 0e              LDA #>Buffer
-  760 0958 8d 11 05           STA SOD+1
-  761 095b 60                 RTS
-  762               
-  763               ; ********
-  764 095c            MainLoop
-  765               ; ********
-  766               
-  767 095c 20 e4 ff           JSR GETIN
-  768 095f f0 fb              BEQ MainLoop
-  769 0961 2c 83 04           BIT HelpScreen
-  770 0964 10 05              BPL MaLo02
-  771 0966 48                 PHA
-  772 0967 20 ca 09           JSR Repaint
-  773 096a 68                 PLA
-  774 096b c9 03    MaLo02    CMP #3          ; STOP key
-  775 096d f0 5a              BEQ MaLo99    
-  776 096f c9 09              CMP #TAB
-  777 0971 f0 4d              BEQ MaLo85
-  778 0973 c9 11              CMP #CDOWN
-  779 0975 f0 49              BEQ MaLo85
-  780 0977 c9 91    MaLo05    CMP #CUP
-  781 0979 d0 06              BNE MaLo10
-  782 097b 20 c9 08           JSR DecSelect
-  783 097e 4c c3 09           JMP MaLo90
-  784 0981 c9 1d    MaLo10    CMP #CRIGHT
-  785 0983 d0 06              BNE MaLo15
-  786 0985 20 69 08           JSR RightSelect
-  787 0988 4c c3 09           JMP MaLo90
-  788 098b c9 9d    MaLo15    CMP #CLEFT
-  789 098d d0 06              BNE MaLo20
-  790 098f 20 80 08           JSR LeftSelect
-  791 0992 4c c3 09           JMP MaLo90
-  792 0995 c9 2b    MaLo20    CMP #'+'
-  793 0997 d0 06              BNE MaLo25
-  794 0999 20 05 09           JSR IncValue
-  795 099c 4c c3 09           JMP MaLo90
-  796 099f c9 2d    MaLo25    CMP #'-'
-  797 09a1 d0 06              BNE MaLo30
-  798 09a3 20 27 09           JSR DecValue
-  799 09a6 4c c3 09           JMP MaLo90
-  800 09a9 c9 13    MaLo30    CMP #HOME
-  801 09ab d0 06              BNE MaLo35
-  802 09ad 20 49 09           JSR HomeSelect
-  803 09b0 4c c3 09           JMP MaLo90
-  804 09b3 c9 48    MaLo35    CMP #'H'
-  805 09b5 d0 06              BNE MaLo40
-  806 09b7 20 e6 05           JSR ShowHelp
-  807 09ba 4c 5c 09           JMP MainLoop
-  808 09bd          MaLo40
-  809                         ;BRK
-  810 09bd 4c 5c 09           JMP MainLoop
-  811 09c0 20 91 08 MaLo85    JSR IncSelect
-  812 09c3 20 fc 08 MaLo90    JSR ShowSelection
-  813 09c6 4c 5c 09           JMP MainLoop
-  814 09c9 60       MaLo99    RTS
-  815               
-  816               
-  817               ; *******
-  818 09ca            Repaint
-  819               ; *******
-  820               
-  821 09ca a9 00              LDA #0
-  822 09cc 8d 83 04           STA HelpScreen
-  823 09cf 20 c5 0b           JSR PaintMask
-  824 09d2 20 1a 07           JSR ShowUnit
-  825 09d5 20 45 07           JSR ShowDrive
-  826 09d8 20 5c 07           JSR ShowDiskName
-  827 09db ad 80 04           LDA Entries
-  828 09de f0 0b              BEQ Repa10
-  829 09e0 a9 02              LDA #2
-  830 09e2 8d 0e 05           STA Select
-  831 09e5 20 3f 08           JSR ShowEntries
-  832 09e8 20 1a 07           JSR ShowUnit
-  833 09eb 60       Repa10    RTS
-  834               
-  835               
-  836               ; ******
-  837 09ec            Reload
-  838               ; ******
-  839               
-  840 09ec a9 00              LDA #0
-  841 09ee 8d 80 04           STA Entries
-  842 09f1 20 60 0c           JSR LoadDirectory
-  843 09f4 20 b6 07           JSR FormatEntries
-  844 09f7 20 ca 09           JSR Repaint
-  845 09fa 60                 RTS
-  846               
-  847               
-  848               ; ****
-  849 09fb            Init
-  850               ; ****
-  851               
-  852 09fb a9 08              LDA #8
-  853 09fd 8d 09 05           STA Unit
-  854 0a00 a9 30              LDA #'0'
-  855 0a02 8d 0a 05           STA Drive
-  856 0a05 a9 00              LDA #0
-  857 0a07 8d 7e 04           STA CursorRow
-  858 0a0a 8d 7f 04           STA CursorCol
-  859 0a0d 8d 80 04           STA Entries
-  860 0a10 8d 08 05           STA Offset
-  861 0a13 8d 0d 05           STA Reverse
-  862 0a16 8d 0e 05           STA Select
-  863 0a19 8d 81 04           STA FirstLine
-  864 0a1c 60                 RTS
-  865               
-  866               ; ****
-  867 0a1d            Main
-  868               ; ****
-  869               
-  870 0a1d 20 3c 0a           JSR Detect_BASIC_version
-  871 0a20 20 3d 0a           JSR Detect_Screen_Width
-  872 0a23 20 4d 0a           JSR SetupScreen
-  873 0a26 20 6a 0a           JSR SetupEntries
-  874 0a29 20 fb 09           JSR Init
-  875 0a2c 20 ec 09           JSR Reload
-  876 0a2f 20 5c 09           JSR MainLoop
-  877 0a32 20 81 06           JSR Flush_Keyboard_Queue
-  878 0a35 a9 75              LDA #<Msg_READY
-  879 0a37 a0 04              LDY #>Msg_READY
-  880 0a39 4c 03 b4           JMP READY
-  881               
-  882               
-  883               
-  884               ; ********************
-  885 0a3c            Detect_BASIC_version
-  886               ; ********************
-  887               ; TODO: detect BASIC version and patch vectors
-  888 0a3c 60                 RTS
-  889               
-  890               ; *******************
-  891 0a3d            Detect_Screen_Width
-  892               ; *******************
-  893               ; TODO: detect Screen Width
-  894 0a3d a9 50              LDA #80
-  895 0a3f 8d 7c 04           STA Cols
-  896 0a42 a9 02              LDA #2
-  897 0a44 8d 84 04           STA Pages
-  898 0a47 a9 28              LDA #40
-  899 0a49 8d 82 04           STA LastLine
-  900 0a4c 60                 RTS
-  901               
-  902               
-  903               ; ***********
-  904 0a4d            SetupScreen
-  905               ; ***********
-  906               
-  907 0a4d a9 00              LDA #<Screen
-  908 0a4f a2 80              LDX #>Screen
-  909 0a51 a0 00              LDY #0
-  910 0a53 99 85 04 SeSe10    STA ScreenLo,Y
-  911 0a56 8a                 TXA
-  912 0a57 99 9e 04           STA ScreenHi,Y
-  913 0a5a 18                 CLC
-  914 0a5b b9 85 04           LDA ScreenLo,Y
-  915 0a5e 6d 7c 04           ADC Cols
-  916 0a61 90 01              BCC SeSe20
-  917 0a63 e8                 INX
-  918 0a64 c8       SeSe20    INY
-  919 0a65 c0 19              CPY #ROWS
-  920 0a67 90 ea              BCC SeSe10
-  921 0a69 60                 RTS
-  922               
-  923               
-  924               ; ************
-  925 0a6a            SetupEntries
-  926               ; ************
-  927               
-  928 0a6a a0 00              LDY #0
-  929 0a6c b9 89 04 SeEn10    LDA ScreenLo+4,Y
-  930 0a6f be a2 04           LDX ScreenHi+4,Y
-  931 0a72 09 01              ORA #1
-  932 0a74 99 b7 04           STA EntryLo,Y
-  933 0a77 48                 PHA
-  934 0a78 8a                 TXA
-  935 0a79 99 df 04           STA EntryHi,Y
-  936 0a7c 68                 PLA
-  937 0a7d 18                 CLC
-  938 0a7e 69 28              ADC #40
-  939 0a80 99 cb 04           STA EntryLo+EntriesPerPage,Y
-  940 0a83 90 01              BCC SeEn20
-  941 0a85 e8                 INX
-  942 0a86 8a       SeEn20    TXA
-  943 0a87 99 f3 04           STA EntryHi+EntriesPerPage,Y
-  944 0a8a c8                 INY
-  945 0a8b c0 14              CPY #EntriesPerPage
-  946 0a8d 90 dd              BCC SeEn10
-  947 0a8f 60                 RTS
-  948               
-  949               
-  950               ; ********
-  951 0a90            HorLine
-  952               ; ********
-  953               
-  954               ; Draw a horizontal line
-  955               ; (X)   = Row
-  956               ; (Y)   = Start column
-  957               ; Count = Last  column + 1
-  958               
-  959 0a90 18                CLC
-  960 0a91 bd 85 04          LDA ScreenLo,X
-  961 0a94 6d 08 05          ADC Offset
-  962 0a97 85 62             STA SP
-  963 0a99 bd 9e 04          LDA ScreenHi,X
-  964 0a9c 69 00             ADC #0
-  965 0a9e 85 63             STA SP+1
-  966 0aa0 a9 40             LDA #HOR_BAR
-  967 0aa2 91 62    HoLi10   STA (SP),Y
-  968 0aa4 c8                INY
-  969 0aa5 cc 7d 04          CPY Count
-  970 0aa8 90 f8             BCC HoLi10
-  971 0aaa 60                RTS
-  972               
-  973               ; ********
-  974 0aab            VerLine
-  975               ; ********
-  976               
-  977               ; Draw a vertical line
-  978               ; (Y)   = Column
-  979               ; (X)   = Start row
-  980               ; Count = Last  row + 1
-  981               
-  982 0aab 18                CLC
-  983 0aac 98                TYA
-  984 0aad 6d 08 05          ADC Offset
-  985 0ab0 a8                TAY
-  986 0ab1 bd 85 04 VeLi10   LDA ScreenLo,X
-  987 0ab4 85 62             STA SP
-  988 0ab6 bd 9e 04          LDA ScreenHi,X
-  989 0ab9 85 63             STA SP+1
-  990 0abb a9 5d             LDA #VER_BAR
-  991 0abd 91 62             STA (SP),Y
-  992 0abf e8                INX
-  993 0ac0 ec 7d 04          CPX Count
-  994 0ac3 90 ec             BCC VeLi10
-  995 0ac5 60                RTS
-  996               
-  997               
-  998               ; ******
-  999 0ac6            GotoXY
- 1000               ; ******
- 1001               
- 1002 0ac6 8e 7e 04           STX CursorRow
- 1003 0ac9 8c 7f 04           STY CursorCol
- 1004 0acc 60                 RTS
- 1005               
- 1006               ; *******
- 1007 0acd            PutChar
- 1008               ; *******
- 1009               
- 1010 0acd 48                 PHA                ; A = Char
- 1011 0ace ae 7e 04           LDX CursorRow
- 1012 0ad1 18                 CLC
- 1013 0ad2 bd 85 04           LDA ScreenLo,X
- 1014 0ad5 6d 7f 04           ADC CursorCol
- 1015 0ad8 85 62              STA SP
- 1016 0ada bd 9e 04           LDA ScreenHi,X
- 1017 0add 69 00              ADC #0
- 1018 0adf 85 63              STA SP+1
- 1019 0ae1 68                 PLA
- 1020 0ae2 a0 00              LDY #0
- 1021 0ae4 91 62              STA (SP),Y
- 1022 0ae6 ee 7f 04           INC CursorCol
- 1023 0ae9 60                 RTS
- 1024               
- 1025               
- 1026               ; ********
- 1027 0aea            PutCharR
- 1028               ; ********
- 1029               
- 1030 0aea 48                 PHA                ; A = Char
- 1031 0aeb ae 7e 04           LDX CursorRow
- 1032 0aee 18                 CLC
- 1033 0aef bd 85 04           LDA ScreenLo,X
- 1034 0af2 6d 7f 04           ADC CursorCol
- 1035 0af5 85 62              STA SP
- 1036 0af7 bd 9e 04           LDA ScreenHi,X
- 1037 0afa 69 00              ADC #0
- 1038 0afc 85 63              STA SP+1
- 1039 0afe 68                 PLA
- 1040 0aff a0 00              LDY #0
- 1041 0b01 20 f0 07           JSR PET2SCR
- 1042 0b04 0d 0d 05           ORA Reverse
- 1043 0b07 91 62              STA (SP),Y
- 1044 0b09 ee 7f 04           INC CursorCol
- 1045 0b0c 60                 RTS
- 1046               
- 1047               
- 1048               ; *********
- 1049 0b0d            PutString
- 1050               ; *********
- 1051               
- 1052 0b0d 86 60              STX STP
- 1053 0b0f 84 61              STY STP+1
- 1054 0b11 a0 00              LDY #0
- 1055 0b13 b1 60              LDA (STP),Y
- 1056 0b15 f0 1c              BEQ PuSt99
- 1057 0b17 20 f0 07           JSR PET2SCR
- 1058 0b1a 20 ea 0a           JSR PutCharR
- 1059 0b1d c8       PuSt10    INY
- 1060 0b1e c0 50              CPY #80
- 1061 0b20 b0 11              BCS PuSt99      ; safety exit
- 1062 0b22 b1 60              LDA (STP),Y
- 1063 0b24 f0 0d              BEQ PuSt99
- 1064 0b26 20 f0 07           JSR PET2SCR
- 1065 0b29 0d 0d 05           ORA Reverse
- 1066 0b2c 91 62              STA (SP),Y
- 1067 0b2e ee 7f 04           INC CursorCol
- 1068 0b31 d0 ea              BNE PuSt10
- 1069 0b33 60       PuSt99    RTS
- 1070               
- 1071               ; ******
- 1072 0b34            PlotAt
- 1073               ; ******
- 1074               
- 1075 0b34 48                PHA              ; X = Row
- 1076 0b35 18                CLC              ; Y = Col
- 1077 0b36 98                TYA              ; A = Char
- 1078 0b37 6d 08 05          ADC Offset
- 1079 0b3a a8                TAY
- 1080 0b3b bd 85 04          LDA ScreenLo,X
- 1081 0b3e 85 62             STA SP
- 1082 0b40 bd 9e 04          LDA ScreenHi,X
- 1083 0b43 85 63             STA SP+1
- 1084 0b45 68                PLA
- 1085 0b46 91 62             STA (SP),Y
- 1086 0b48 60                RTS
- 1087               
- 1088               ; *******
- 1089 0b49            PlotAtR
- 1090               ; *******
- 1091               
- 1092 0b49 48                PHA              ; X = Row
- 1093 0b4a 18                CLC              ; Y = Col
- 1094 0b4b 98                TYA              ; A = Char
- 1095 0b4c 6d 08 05          ADC Offset
- 1096 0b4f a8                TAY
- 1097 0b50 bd 85 04          LDA ScreenLo,X
- 1098 0b53 85 62             STA SP
- 1099 0b55 bd 9e 04          LDA ScreenHi,X
- 1100 0b58 85 63             STA SP+1
- 1101 0b5a 68                PLA
- 1102 0b5b 0d 0d 05          ORA Reverse
- 1103 0b5e 91 62             STA (SP),Y
- 1104 0b60 60                RTS
- 1105               
- 1106               ; *********
- 1107 0b61            PaintPage
- 1108               ; *********
- 1109               
- 1110 0b61 a2 27              LDX #39
- 1111 0b63 8e 7d 04           STX Count
- 1112 0b66 a2 01              LDX #1
- 1113 0b68 a0 01              LDY #1
- 1114 0b6a 20 90 0a           JSR HorLine
- 1115 0b6d a2 03              LDX #3
- 1116 0b6f a0 01              LDY #1
- 1117 0b71 20 90 0a           JSR HorLine
- 1118 0b74 a2 18              LDX #24
- 1119 0b76 a0 01              LDY #1
- 1120 0b78 20 90 0a           JSR HorLine
- 1121 0b7b a2 18              LDX #24
- 1122 0b7d 8e 7d 04           STX Count
- 1123 0b80 a2 01              LDX #1
- 1124 0b82 a0 00              LDY #0
- 1125 0b84 20 ab 0a           JSR VerLine
- 1126 0b87 a2 01              LDX #1
- 1127 0b89 a0 27              LDY #39
- 1128 0b8b 20 ab 0a           JSR VerLine
- 1129                         MAC_Plot( 1, 0,UL)
- 1129 0b8e a9 70              LDA #UL
- 1129 0b90 a2 01              LDX #1
- 1129 0b92 a0 00              LDY #0
- 1129 0b94 20 34 0b           JSR PlotAt
- 1129               
- 1130                         MAC_Plot( 1,39,UR)
- 1130 0b97 a9 6e              LDA #UR
- 1130 0b99 a2 01              LDX #1
- 1130 0b9b a0 27              LDY #39
- 1130 0b9d 20 34 0b           JSR PlotAt
- 1130               
- 1131                         MAC_Plot(24, 0,LL)
- 1131 0ba0 a9 6d              LDA #LL
- 1131 0ba2 a2 18              LDX #24
- 1131 0ba4 a0 00              LDY #0
- 1131 0ba6 20 34 0b           JSR PlotAt
- 1131               
- 1132                         MAC_Plot(24,39,LR)
- 1132 0ba9 a9 7d              LDA #LR
- 1132 0bab a2 18              LDX #24
- 1132 0bad a0 27              LDY #39
- 1132 0baf 20 34 0b           JSR PlotAt
- 1132               
- 1133                         MAC_Plot( 3, 0,TL)
- 1133 0bb2 a9 6b              LDA #TL
- 1133 0bb4 a2 03              LDX #3
- 1133 0bb6 a0 00              LDY #0
- 1133 0bb8 20 34 0b           JSR PlotAt
- 1133               
- 1134                         MAC_Plot( 3,39,TR)
- 1134 0bbb a9 73              LDA #TR
- 1134 0bbd a2 03              LDX #3
- 1134 0bbf a0 27              LDY #39
- 1134 0bc1 20 34 0b           JSR PlotAt
- 1134               
- 1135 0bc4 60                 RTS
- 1136               
- 1137               ; *********
- 1138 0bc5            PaintMask
- 1139               ; *********
- 1140               
- 1141 0bc5 a9 8e              LDA #142         ; Screen Mode
- 1142 0bc7 20 d2 ff           JSR BSOUT
- 1143 0bca a9 93              LDA #CLR
- 1144 0bcc 20 d2 ff           JSR BSOUT        ; clear screen
- 1145 0bcf 20 d2 ff           JSR BSOUT        ; amd remove window settings
- 1146 0bd2 a9 0e              LDA #14
- 1147 0bd4 8d 4c e8           STA $e84c        ; text char set
- 1148 0bd7 ad 84 04           LDA Pages
- 1149 0bda 8d 07 05           STA Page
- 1150 0bdd a9 00              LDA #0
- 1151 0bdf 8d 08 05           STA Offset
- 1152 0be2 20 61 0b PaMa10    JSR PaintPage
- 1153 0be5 18                 CLC
- 1154 0be6 ad 08 05           LDA Offset
- 1155 0be9 69 28              ADC #40
- 1156 0beb 8d 08 05           STA Offset
- 1157 0bee ce 07 05           DEC Page
- 1158 0bf1 d0 ef              BNE PaMa10
- 1159 0bf3 a9 00              LDA #0
- 1160 0bf5 8d 08 05           STA Offset
- 1161                         MAC_PutString(2,1,UnitText)
- 1161 0bf8 a2 02              LDX #2
- 1161 0bfa a0 01              LDY #1
- 1161 0bfc 20 c6 0a           JSR GotoXY
- 1161 0bff a2 32              LDX #<UnitText
- 1161 0c01 a0 04              LDY #>UnitText
- 1161 0c03 20 0d 0b           JSR PutString
- 1161               
- 1162                         MAC_PutString(2,9,DriveText)
- 1162 0c06 a2 02              LDX #2
- 1162 0c08 a0 09              LDY #9
- 1162 0c0a 20 c6 0a           JSR GotoXY
- 1162 0c0d a2 38              LDX #<DriveText
- 1162 0c0f a0 04              LDY #>DriveText
- 1162 0c11 20 0d 0b           JSR PutString
- 1162               
- 1163 0c14 a9 80              LDA #$80
- 1164 0c16 8d 0d 05           STA Reverse
- 1165                         MAC_PutString(0,19,ProgramText)
- 1165 0c19 a2 00              LDX #0
- 1165 0c1b a0 13              LDY #19
- 1165 0c1d 20 c6 0a           JSR GotoXY
- 1165 0c20 a2 4a              LDX #<ProgramText
- 1165 0c22 a0 04              LDY #>ProgramText
- 1165 0c24 20 0d 0b           JSR PutString
- 1165               
- 1166 0c27 a9 00              LDA #0
- 1167 0c29 8d 0d 05           STA Reverse
- 1168                         MAC_PutString(0,69,HelpText)
- 1168 0c2c a2 00              LDX #0
- 1168 0c2e a0 45              LDY #69
- 1168 0c30 20 c6 0a           JSR GotoXY
- 1168 0c33 a2 3f              LDX #<HelpText
- 1168 0c35 a0 04              LDY #>HelpText
- 1168 0c37 20 0d 0b           JSR PutString
- 1168               
- 1169 0c3a 60                 RTS
- 1170               
- 1171               
- 1172               
- 1173               ; *************
- 1174 0c3b            GetDiskStatus
- 1175               ; *************
- 1176               
- 1177 0c3b ad 09 05           LDA Unit
- 1178 0c3e 85 d4              STA FA
- 1179 0c40 20 d2 f0           JSR TALK 
- 1180 0c43 a9 6f              LDA #$6f 
- 1181 0c45 20 93 f1           JSR TKSA 
- 1182 0c48 a0 00              LDY #0
- 1183 0c4a 20 c0 f1 gss_10    JSR ACPTR
- 1184 0c4d c9 20              CMP #' ' 
- 1185 0c4f 90 0b              BCC gss_20
- 1186 0c51 20 f0 07           JSR PET2SCR
- 1187 0c54 99 c9 80           STA DiskStatus,Y
- 1188 0c57 c8                 INY  
- 1189 0c58 c0 28              CPY #40
- 1190 0c5a 90 ee              BCC gss_10
- 1191 0c5c 20 ae f1 gss_20    JSR UNTLK
- 1192 0c5f 60                 RTS  
- 1193               
- 1194               
- 1195               ; *************
- 1196 0c60            LoadDirectory
- 1197               ; *************
- 1198               
- 1199 0c60 a9 00              LDA #<Buffer        ; Initialize buffer pointer BP
- 1200 0c62 85 5e              STA BP              ; and End Of Directory EOD
- 1201 0c64 8d 12 05           STA EOD
- 1202 0c67 a9 20              LDA #$20
- 1203 0c69 8d 10 05           STA SOD
- 1204 0c6c a9 0e              LDA #>Buffer
- 1205 0c6e 85 5f              STA BP+1
- 1206 0c70 8d 13 05           STA EOD+1
- 1207 0c73 8d 11 05           STA SOD+1
- 1208 0c76 a0 00              LDY #0
- 1209 0c78 98                 TYA
- 1210 0c79 99 00 0e LoDi05    STA Buffer,Y
- 1211 0c7c c8                 INY
- 1212 0c7d d0 fa              BNE LoDi05
- 1213 0c7f ad 09 05           LDA Unit            ; Send LOAD "$n" to Unit
- 1214 0c82 85 d4              STA FA
- 1215 0c84 20 d5 f0           JSR LISTEN
- 1216 0c87 a9 f0              LDA #$f0
- 1217 0c89 20 43 f1           JSR SECOND
- 1218 0c8c a9 24              LDA #'$'
- 1219 0c8e 20 9e f1           JSR CIOUT
- 1220 0c91 ad 0a 05           LDA Drive
- 1221 0c94 20 9e f1           JSR CIOUT
- 1222 0c97 20 b9 f1           JSR UNLSN
- 1223 0c9a 20 3b 0c           JSR GetDiskStatus
- 1224 0c9d ad c9 80           LDA DiskStatus
- 1225 0ca0 c9 30              CMP #'0'
- 1226 0ca2 d0 2b              BNE LoDi99
- 1227 0ca4 20 d2 f0           JSR TALK
- 1228 0ca7 a9 60              LDA #$60
- 1229 0ca9 20 93 f1           JSR TKSA
- 1230 0cac a9 bd              LDA #$bd
- 1231 0cae 25 96              AND STATUS
- 1232 0cb0 85 96              STA STATUS
- 1233 0cb2 a0 00              LDY #0
- 1234 0cb4 20 c0 f1 LoDi10    JSR ACPTR
- 1235 0cb7 91 5e              STA (BP),Y
- 1236 0cb9 24 96              BIT STATUS
- 1237 0cbb 70 07              BVS LoDi20
- 1238 0cbd c8                 INY
- 1239 0cbe d0 f4              BNE LoDi10
- 1240 0cc0 e6 5f              INC BP+1
- 1241 0cc2 10 f0              BPL LoDi10
- 1242 0cc4 20 ae f1 LoDi20    JSR UNTLK
- 1243 0cc7 8c 12 05           STY EOD
- 1244 0cca a5 5f              LDA BP+1
- 1245 0ccc 8d 13 05           STA EOD+1
- 1246 0ccf 60       LoDi99    RTS
- 1247               
- 1248               ; **************
- 1249 0cd0            GetLoadAddress
- 1250               ; **************
- 1251               
- 1252 0cd0 a0 1e              LDY #$1e
- 1253 0cd2 a9 00              LDA #0
- 1254 0cd4 91 5e              STA (BP),Y          ; new end of string
- 1255 0cd6 a0 16              LDY #$16            ; position of file type
- 1256 0cd8 b1 5e              LDA (BP),Y
- 1257 0cda c9 50              CMP #'P'            ; PRG files only
- 1258 0cdc d0 50              BNE GLA99
- 1259 0cde ad 09 05           LDA Unit            ; send LOAD "Filenamen" to Unit
- 1260 0ce1 85 d4              STA FA
- 1261 0ce3 20 d5 f0           JSR LISTEN
- 1262 0ce6 a9 f0              LDA #$f0
- 1263 0ce8 20 43 f1           JSR SECOND
- 1264 0ceb a0 04              LDY #4              ; start of ilename
- 1265 0ced b1 5e    GLA10     LDA (BP),Y
- 1266 0cef c9 22              CMP #$22            ; quote marks end of filename
- 1267 0cf1 f0 08              BEQ GLA20
- 1268 0cf3 20 9e f1           JSR CIOUT
- 1269 0cf6 c8                 INY
- 1270 0cf7 c0 14              CPY #20
- 1271 0cf9 90 f2              BCC GLA10
- 1272 0cfb 20 b9 f1 GLA20     JSR UNLSN
- 1273 0cfe 20 3b 0c           JSR GetDiskStatus
- 1274 0d01 ad c9 80           LDA DiskStatus
- 1275 0d04 c9 30              CMP #'0'
- 1276 0d06 d0 26              BNE GLA99
- 1277 0d08 20 d2 f0           JSR TALK
- 1278 0d0b a9 60              LDA #$60
- 1279 0d0d 20 93 f1           JSR TKSA
- 1280 0d10 20 c0 f1           JSR ACPTR
- 1281 0d13 20 2f 0d           JSR ASCII_Hex
- 1282 0d16 a0 1d              LDY #$1d             ; load address low
- 1283 0d18 91 5e              STA (BP),Y
- 1284 0d1a 88                 DEY
- 1285 0d1b 8a                 TXA
- 1286 0d1c 91 5e              STA (BP),Y
- 1287 0d1e 20 c0 f1           JSR ACPTR
- 1288 0d21 20 2f 0d           JSR ASCII_Hex
- 1289 0d24 88                 DEY                  ; load address high
- 1290 0d25 91 5e              STA (BP),Y
- 1291 0d27 88                 DEY
- 1292 0d28 8a                 TXA
- 1293 0d29 91 5e              STA (BP),Y
- 1294 0d2b 20 ae f1           JSR UNTLK
- 1295 0d2e 60       GLA99     RTS
- 1296               
- 1297               ; **********
- 1298 0d2f            ASCII_Hex
- 1299               ; **********
- 1300               
- 1301               ; Input:  (A)
- 1302               ; Output: (X) = High nibble (A) = Low nibble
- 1303 0d2f 48                PHA  
- 1304 0d30 4a                LSR A
- 1305 0d31 4a                LSR A
- 1306 0d32 4a                LSR A
- 1307 0d33 4a                LSR A
- 1308 0d34 09 30             ORA #'0' 
- 1309 0d36 c9 3a             CMP #$3a 
- 1310 0d38 90 02             BCC Hex_11
- 1311 0d3a 69 06             ADC #6
- 1312 0d3c aa       Hex_11   TAX  
- 1313 0d3d 68                PLA  
- 1314 0d3e 29 0f             AND #15
- 1315 0d40 09 30             ORA #'0' 
- 1316 0d42 c9 3a             CMP #$3a 
- 1317 0d44 90 02             BCC Hex_12
- 1318 0d46 69 06             ADC #6
- 1319 0d48 60       Hex_12   RTS  
- 1320               
- 1321               
- 1322 0d49          EOP       ; END-OF-PROGRAM
- 1323               
+              ; **********************************************
+              ; ************* SoftROM EEPROM tool ************
+              ; **********************************************
+              ;
+              ; Assemble with "The Black Smurf Assembler"
+              ; freely available from https://github.com/Edilbert/BSA
+              ;
+              ; Copyright (c) 2014 Nils Eilers <nils.eilers@gmx.de>
+              ; This work is free. You can redistribute it and/or modify it under the
+              ; terms of the Do What The Fuck You Want to Public License, Version 2,
+              ; as published by Sam Hocevar. See the COPYING file for more details.
+
+              ; ************
+              ; * Keycodes *
+              ; ************
+
+0009          TAB        =   9     ; Tab
+000d          CR         =  13     ; Carriage Return
+0013          HOME       =  19     ; Home
+0014          DEL        =  20     ; Delete
+0093          CLR        = 147     ; Clear
+0011          CDOWN      =  17     ; Cursor Down
+001d          CRIGHT     =  29     ; Cursor Right
+0091          CUP        = 145     ; Cursor Up
+009d          CLEFT      = 157     ; Cursor Left
+
+              ; ****************
+              ; * Screen codes *
+              ; ****************
+
+0000          C8296 = 0
+
+0001 FALSE    #if C8296
+SKIP          HOR_BAR    = 102     ; -
+SKIP          VER_BAR    =  97     ; |
+SKIP          UL         = 104     ; upper left
+SKIP          UR         = 106     ; upper right
+SKIP          LL         =  98     ; lower left
+SKIP          LR         = 100     ; lower right
+SKIP          TL         = 101     ; T left
+SKIP          TR         = 103     ; T right
+SKIP          TU         = 105     ; T upper
+SKIP          TB         =  99     ; T bottom
+SKIP          
+              #else
+
+0040          HOR_BAR    =  64     ; -
+005d          VER_BAR    =  93     ; |
+0070          UL         = 112     ; upper left
+006e          UR         = 110     ; upper right
+006d          LL         = 109     ; lower left
+007d          LR         = 125     ; lower right
+006b          TL         = 107     ; T left
+0073          TR         = 115     ; T right
+              #endif
+
+0019          ROWS       =  25
+
+              ; ****************************
+              ; * Some Zero Page Variables *
+              ; ****************************
+
+005e          BP        = $5e      ; Buffer Pointer
+0060          STP       = $60      ; String Pointer
+0062          SP        = $62      ; SCREEN Pointer
+0064          TP        = $64      ; Temporary Pointer
+0066          SelPtr    = $66      ; Selection pointer
+
+              ; ************************
+              ; * CBM Kernal Variables *
+              ; ************************
+
+0096          STATUS    = $96      ; Status byte
+009b          STKEY     = $9b      ; Stop key pressed?
+00a7          BLNSW     = $a7      ; Blink switch
+00a8          BLNCT     = $a8      ; Blink count
+00aa          BLNON     = $aa      ; Blink On
+00c9          EAL       = $c9      ; used for LOAD, SAVE and TIM
+00d1          FNLEN     = $d1      ; Filename length
+00d3          SA        = $d3      ; Secondary address
+00d4          FA        = $d4      ; First sddress
+00da          FNADR     = $da      ; Filename address
+
+0342          DOS_Filename = $0342
+
+              ; *************
+              ; * Constants *
+              ; *************
+
+8000          Screen = $8000
+0014          EntriesPerPage = 20
+
+              ; *****************************************
+              ; * Put the buffer after the program code *
+              ; *****************************************
+
+0f00          Buffer  = [EOP & $ff00] + $100
+0008          PosDiskName =  8
+001a          PosDiskID   = 26
+
+              ; ***************************************************
+              ; * The CBM 8000 Kernal has no jump table for these *
+              ; ***************************************************
+
+b403          READY   = $b403 ; $b3ff ; $b406 omitting prompt
+f0d2          TALK    = $f0d2
+f0d5          LISTEN  = $f0d5
+f143          SECOND  = $f143
+f193          TKSA    = $f193
+f19e          CIOUT   = $f19e
+f1ae          UNTLK   = $f1ae
+f1b9          UNLSN   = $f1b9
+f1c0          ACPTR   = $f1c0
+ffd2          BSOUT   = $ffd2
+ffd2          CHROUT  = $ffd2
+ffe4          GETIN   = $ffe4
+
+f343          Kernal_STOP = $f343
+
+              ; ***************
+              ; * Print Macro *
+              ; ***************
+
+              MACRO MAC_Print(lab)
+                        LDY #<lab
+                        LDA #>lab
+                        LDX #?lab
+                        JSR PrintText
+              ENDMAC
+
+              MACRO MAC_Plot(Row,Col,Char)
+                        LDA #Char
+                        LDX #Row
+                        LDY #Col
+                        JSR PlotAt
+              ENDMAC
+
+              MACRO MAC_PutString(Row,Col,Text)
+                        LDX #Row
+                        LDY #Col
+                        JSR GotoXY
+                        LDX #<Text
+                        LDY #>Text
+                        JSR PutString
+              ENDMAC
+
+              ; ***************************************************
+              ; The directory is loaded into RAM beyond the program
+              ; SOD = Start of directory
+              ; EOD = End   of directory
+              ; ***************************************************
+
+              ; **********************************
+              ; * BASIC header for program start *
+              ; **********************************
+
+0401          START   = $0401
+
+0401          * = START ; *** BASIC ***  CBM / PET series
+
+                        .STORE START,EOP-START,"softrom.prg"
+
+0401 27 04    Link      .WORD EndLink
+
+              ; **********
+0403            Linenumber
+              ; **********
+
+0403 df 07              .WORD 2015
+
+              ; **********
+0405            SysCommand
+              ; **********
+
+0405 9e                   .BYTE $9e       ; SYS token
+0406 28 31 30 StartML     .BYTE "(1065)"
+040c 3a 8f                .BYTE ':',$8f   ; REM token
+040e 20 53 4f             .BYTE " SOFTROM EEPROM TOOL 0.2"
+0426 00       LineEnd     .BYTE 0
+0427 00 00    EndLink     .WORD 0
+
+0429 4c 3d 0a           JMP Main
+
+042c 30 30 30 NUMBER      .BYTE "00000 "
+0432 55 4e 49 UnitText    .PET  'unit:',0
+0438 44 52 49 DriveText   .PET  'drive:',0
+043f 3c 48 3e HelpText    .BYTE "<H> = HELP",0
+044a 20 53 4f ProgramText .BYTE " SOFTROM EEPROM TOOL (C) NILS EILERS & BS ",0
+0475 52 45 41 Msg_READY   .BYTE "READY.",0
+047c 50       Cols        .BYTE 80
+047d 00       Count       .BYTE  0
+047e 00       CursorRow   .BYTE  0
+047f 00       CursorCol   .BYTE  0
+0480 00       Entries     .BYTE  0
+0481 00       FirstLine   .BYTE  0
+0482 14       LastLine    .BYTE 20
+0483 00       HelpScreen  .BYTE  0
+0484 02       Pages       .BYTE  2
+0485 00 00 00 ScreenLo    .FILL 25 (0) ; 25 bytes
+049e 00 00 00 ScreenHi    .FILL 25 (0) ; 25 bytes
+04b7 00 00 00 EntryLo     .FILL 40 (0) ; 40 bytes
+04df 00 00 00 EntryHi     .FILL 40 (0) ; 40 bytes
+0507 00       Page        .BYTE  0
+0508 00       Offset      .BYTE  0
+0509 08       Unit        .BYTE  8
+050a 30       Drive       .BYTE  '0'
+050b 00       LV0         .BYTE  0
+050c 00       LV1         .BYTE  0
+050d 00       Reverse     .BYTE  0
+050e 02       Select      .BYTE  2
+050f 00       FirstFile   .BYTE  0  ; First file on display
+0510 00 00    SOD         .WORD  0  ; Start Of Directory
+0512 00 00    EOD         .WORD  0  ; End Of Directory
+0514 00       TargetLo    .BYTE  $00
+0515 90       TargetHi    .BYTE  $90
+0516 00       SelectionLo .BYTE  0
+0517 00       SelectionHi .BYTE  0
+0518 10       SelFilename .BYTE 16
+
+80c9          DiskStatus = $8000 + 201
+
+001e          HelpLen   = 30
+0007          HelpLines =  7
+0519 55 50 2f HelpWin     .BYTE "UP/DN  MOVE SELECTION BAR    ",0
+0537 2b 20 2f             .BYTE "+ / -  CHANGE UNIT OR DRIVE #",0
+0555 48 4f 4d             .BYTE "HOME   RESET THE SCREEN      ",0
+0573 52 45 54             .BYTE "RETURN FLASH EEPROM FROM FILE",0
+0591 53 54 4f             .BYTE "STOP   QUIT THE PROGRAM      ",0
+05af 48 20 20             .BYTE "H      SHOW THIS HELP WINDOW ",0
+05cd 45 53 43             .BYTE "ESC    CLOSE HELP WINDOW     ",0
 
 
-  212 Symbols
+              ; ********
+05eb            ShowHelp
+              ; ********
+
+05eb a9 00              LDA #0
+05ed 8d 08 05           STA Offset
+05f0 a2 35              LDX #53
+05f2 8e 7d 04           STX Count
+05f5 a2 08              LDX #8
+05f7 a0 18              LDY #24
+05f9 20 bd 0a           JSR HorLine
+05fc a2 10              LDX #16
+05fe a0 18              LDY #24
+0600 20 bd 0a           JSR HorLine
+0603 a2 10              LDX #16
+0605 8e 7d 04           STX Count
+0608 a2 08              LDX #8
+060a a0 17              LDY #23
+060c 20 d8 0a           JSR VerLine
+060f a2 08              LDX #8
+0611 a0 35              LDY #53
+0613 20 d8 0a           JSR VerLine
+                        MAC_Plot( 8,23,UL)
+0616 a9 70              LDA #UL
+0618 a2 08              LDX #8
+061a a0 17              LDY #23
+061c 20 61 0b           JSR PlotAt
+
+                        MAC_Plot( 8,53,UR)
+061f a9 6e              LDA #UR
+0621 a2 08              LDX #8
+0623 a0 35              LDY #53
+0625 20 61 0b           JSR PlotAt
+
+                        MAC_Plot(16,23,LL)
+0628 a9 6d              LDA #LL
+062a a2 10              LDX #16
+062c a0 17              LDY #23
+062e 20 61 0b           JSR PlotAt
+
+                        MAC_Plot(16,53,LR)
+0631 a9 7d              LDA #LR
+0633 a2 10              LDX #16
+0635 a0 35              LDY #53
+0637 20 61 0b           JSR PlotAt
+
+063a a9 07              LDA #HelpLines
+063c 8d 7d 04           STA Count
+063f a2 09              LDX #9
+0641 a0 18              LDY #24
+0643 20 f3 0a           JSR GotoXY
+0646 a2 19              LDX #<HelpWin
+0648 a0 05              LDY #>HelpWin
+064a 20 3a 0b ShHe10    JSR PutString
+064d ae 7e 04           LDX CursorRow
+0650 e8                 INX
+0651 a0 18              LDY #24
+0653 20 f3 0a           JSR GotoXY
+0656 18                 CLC
+0657 a5 60              LDA STP
+0659 69 1e              ADC #HelpLen
+065b aa                 TAX
+065c a5 61              LDA STP+1
+065e 69 00              ADC #0
+0660 a8                 TAY
+0661 ce 7d 04           DEC Count
+0664 d0 e4              BNE ShHe10
+0666 a9 ff              LDA #$ff
+0668 8d 83 04           STA HelpScreen
+066b 60                 RTS
+
+
+
+              ; ****
+066c            STOP
+              ; ****
+066c a5 9b              LDA STKEY
+066e c9 ef              CMP #$ef
+0670 60                 RTS
+
+              ; **********
+0671            Error_Beep
+              ; **********
+
+0671 a9 07              LDA #7
+0673 4c d2 ff           JMP BSOUT
+
+              ; *********
+0676            PrintText
+              ; *********
+
+0676 84 62              STY SP
+0678 85 63              STA SP+1
+067a a0 00              LDY #0
+067c b1 62    PrTe_10   LDA (SP),Y
+067e 20 d2 ff           JSR BSOUT
+0681 c8                 INY
+0682 ca                 DEX
+0683 d0 f7              BNE PrTe_10
+0685 60                 RTS
+
+              ; ********************
+0686            Flush_Keyboard_Queue
+              ; ********************
+
+0686 20 e4 ff           JSR GETIN
+0689 d0 fb              BNE Flush_Keyboard_Queue
+068b 60                 RTS
+
+              ; ***********
+068c            FormatByte
+              ; ***********
+
+              ; Convert binary number in (A) to
+              ; three decimal digits in (Y),(X) and (A)
+
+068c a0 30              LDY #'0'      ; 100
+068e a2 2f              LDX #'0'-1    ;  10
+0690 38                 SEC
+0691 e8       asts_01   INX
+0692 e9 0a              SBC #10
+0694 b0 fb              BCS asts_01
+0696 69 3a              ADC #$3a
+0698 e0 3a              CPX #$3a
+069a 90 07              BCC asts_rt  ; X < 10
+069c 48                 PHA
+069d 8a                 TXA
+069e e9 0a              SBC #10      ; X -= 10
+06a0 aa                 TAX
+06a1 68                 PLA
+06a2 c8                 INY          ; Y = 1
+06a3 60       asts_rt   RTS
+
+
+              ; **************
+06a4            FormatInteger
+              ; **************
+
+06a4 a0 2f              LDY #$2f           ; X = low  byte
+06a6 38                 SEC                ; A = high byte
+06a7 c8       FORINT_01 INY
+06a8 8e 0b 05           STX LV0
+06ab 8d 0c 05           STA LV1
+06ae 8a                 TXA
+06af e9 10              SBC #<10000
+06b1 aa                 TAX
+06b2 ad 0c 05           LDA LV1
+06b5 e9 27              SBC #>10000
+06b7 b0 ee              BCS FORINT_01
+06b9 8c 2c 04           STY NUMBER
+06bc ae 0b 05           LDX LV0
+06bf ad 0c 05           LDA LV1
+06c2 a0 2f              LDY #$2f
+06c4 38                 SEC
+06c5 c8       FORINT_02 INY
+06c6 8e 0b 05           STX LV0
+06c9 8d 0c 05           STA LV1
+06cc 8a                 TXA
+06cd e9 e8              SBC #<1000
+06cf aa                 TAX
+06d0 ad 0c 05           LDA LV1
+06d3 e9 03              SBC #>1000
+06d5 b0 ee              BCS FORINT_02
+06d7 8c 2d 04           STY NUMBER+1
+06da ae 0b 05           LDX LV0
+06dd ad 0c 05           LDA LV1
+06e0 a0 2f              LDY #$2f
+06e2 38                 SEC
+06e3 c8       FORINT_03 INY
+06e4 8e 0b 05           STX LV0
+06e7 8d 0c 05           STA LV1
+06ea 8a                 TXA
+06eb e9 64              SBC #100
+06ed aa                 TAX
+06ee ad 0c 05           LDA LV1
+06f1 e9 00              SBC #0
+06f3 b0 ee              BCS FORINT_03
+06f5 8c 2e 04           STY NUMBER+2
+06f8 ad 0b 05           LDA LV0
+06fb a0 2f              LDY #$2f
+06fd 38                 SEC
+06fe c8       FORINT_04 INY
+06ff e9 0a              SBC #10
+0701 b0 fb              BCS FORINT_04
+0703 8c 2f 04           STY NUMBER+3
+0706 69 3a              ADC #$3a
+0708 8d 30 04           STA NUMBER+4
+070b a2 00              LDX #0
+070d a9 20              LDA #' '
+070f bc 2c 04 FORINT_05 LDY NUMBER,X
+0712 c0 30              CPY #'0'
+0714 d0 08              BNE FORINT_06
+0716 9d 2c 04           STA NUMBER,X
+0719 e8                 INX
+071a e0 04              CPX #4
+071c 90 f1              BCC FORINT_05
+071e 60       FORINT_06 RTS
+
+
+              ; ********
+071f            ShowUnit
+              ; ********
+
+071f a2 00              LDX #0
+0721 ac 0e 05           LDY Select
+0724 d0 02              BNE ShUn10
+0726 a2 80              LDX #$80
+0728 8e 0d 05 ShUn10    STX Reverse
+072b a2 02              LDX #2
+072d a0 06              LDY #6
+072f 20 f3 0a           JSR GotoXY
+0732 ad 09 05           LDA Unit
+0735 20 8c 06           JSR FormatByte
+0738 e0 30              CPX #'0'
+073a f0 06              BEQ ShUn20
+073c 48                 PHA
+073d 8a                 TXA
+073e 20 17 0b           JSR PutCharR
+0741 68                 PLA
+0742 20 17 0b ShUn20    JSR PutCharR
+0745 a9 20              LDA #' '
+0747 4c fa 0a           JMP PutChar
+
+              ; *********
+074a            ShowDrive
+              ; *********
+
+074a a2 00              LDX #0
+074c ac 0e 05           LDY Select
+074f 88                 DEY
+0750 d0 02              BNE ShDr10
+0752 a2 80              LDX #$80
+0754 8e 0d 05 ShDr10    STX Reverse
+0757 ad 0a 05           LDA Drive
+075a a2 02              LDX #2
+075c a0 0f              LDY #15
+075e 4c 76 0b           JMP PlotAtR
+
+
+              ; ************
+0761            ShowDiskName
+              ; ************
+
+0761 a2 02              LDX #2
+0763 a0 12              LDY #18
+0765 20 f3 0a           JSR GotoXY
+0768 a9 20              LDA #' '
+076a 8d 18 0f           STA Buffer + PosDiskName + 16 ; delete quote
+076d a9 00              LDA #0
+076f 8d 1c 0f           STA Buffer + PosDiskName + 20 ; mark string end
+0772 a2 08              LDX #<[Buffer + PosDiskName]
+0774 a0 0f              LDY #>[Buffer + PosDiskName]
+0776 4c 3a 0b           JMP PutString
+
+              ; **************
+0779            FormatFilename
+              ; **************
+
+0779 a5 5e              LDA BP
+077b 85 60              STA STP
+077d a5 5f              LDA BP+1
+077f 85 61              STA STP+1
+0781 a0 02              LDY #2
+0783 b1 5e              LDA (BP),Y      ; Blocks low
+0785 aa                 TAX
+0786 c8                 INY
+0787 b1 5e              LDA (BP),Y      ; Blocks high
+0789 20 a4 06           JSR FormatInteger
+078c a0 00              LDY #0
+078e b9 2e 04 FoFi10    LDA NUMBER+2,Y
+0791 91 5e              STA (BP),Y
+0793 c8                 INY
+0794 c0 04              CPY #4
+0796 90 f6              BCC FoFi10
+0798 b1 5e              LDA (BP),Y
+079a c9 20              CMP #' '
+079c d0 1c              BNE FoFi99
+079e e6 60    FoFi20    INC STP
+07a0 b1 60              LDA (STP),Y
+07a2 c9 20              CMP #' '
+07a4 f0 f8              BEQ FoFi20
+07a6 c9 22              CMP #$22
+07a8 f0 f4              BEQ FoFi20
+07aa 91 5e              STA (BP),Y
+07ac c8       FoFi40    INY
+07ad c0 20              CPY #$20
+07af b0 09              BCS FoFi99
+07b1 b1 60    FoFi50    LDA (STP),Y
+07b3 91 5e              STA (BP),Y
+07b5 d0 f5              BNE FoFi40
+07b7 ee 80 04           INC Entries
+07ba 60       FoFi99    RTS
+
+
+              ; *************
+07bb            FormatEntries
+              ; *************
+
+07bb a9 00              LDA #0
+07bd 8d 80 04           STA Entries
+07c0 a9 20              LDA #$20        ; 1st. file
+07c2 85 5e              STA BP
+07c4 a9 0f              LDA #>Buffer
+07c6 85 5f              STA BP+1
+07c8 a0 04    FoEn10    LDY #4          ; after link and #
+07ca b1 5e              LDA (BP),Y
+07cc c9 20              CMP #' '        ; for filename must be blank
+07ce d0 24              BNE FoEn99
+07d0 20 79 07           JSR FormatFilename
+07d3 20 ff 0c           JSR GetLoadAddress
+07d6 ae 80 04           LDX Entries
+07d9 ca                 DEX
+07da 20 0b 08           JSR ShowEntry
+07dd 18                 CLC
+07de a5 5e              LDA BP
+07e0 69 20              ADC #$20
+07e2 85 5e              STA BP
+07e4 90 02              BCC FoEn20
+07e6 e6 5f              INC BP+1
+07e8 ad 12 05 FoEn20    LDA EOD         ; check for End Of Directory
+07eb c5 5e              CMP BP
+07ed ad 13 05           LDA EOD+1
+07f0 e5 5f              SBC BP+1
+07f2 b0 d4              BCS FoEn10
+07f4 60       FoEn99    RTS
+
+
+              ; *******
+07f5            PET2SCR
+              ; *******
+
+07f5 c9 41              CMP #$41
+07f7 90 11              BCC P2C99
+07f9 c9 5b              CMP #$5b
+07fb b0 03              BCS P2C10
+07fd 29 1f              AND #$1f    ; a - z
+07ff 60                 RTS
+0800 c9 c1    P2C10     CMP #$c1
+0802 90 06              BCC P2C99
+0804 c9 ca              CMP #$ca
+0806 b0 02              BCS P2C99
+0808 29 7f              AND #$7f    ; A - Z
+080a 60       P2C99     RTS
+
+              ; *********
+080b            ShowEntry
+              ; *********
+
+              ; Input: (X)  = entry # (unchanged)
+              ;        (BP) = buffer pointer
+              ; Used:  (A),(Y)
+
+080b ec 82 04           CPX LastLine
+080e b0 47              BCS ShEn99
+0810 a0 00              LDY #0              ; no reverse
+0812 8a                 TXA                 ; entry # in (X)
+0813 18                 CLC
+0814 69 02              ADC #2
+0816 cd 0e 05           CMP Select
+0819 d0 16              BNE ShEn10
+081b bd b7 04           LDA EntryLo,X
+081e 8d 16 05           STA SelectionLo
+0821 bd df 04           LDA EntryHi,X
+0824 8d 17 05           STA SelectionHi
+0827 a5 5e              LDA BP
+0829 85 66              STA SelPtr
+082b a5 5f              LDA BP+1
+082d 85 67              STA SelPtr+1
+082f a0 80              LDY #$80            ; selected
+0831 8c 0d 05 ShEn10    STY Reverse
+0834 bd b7 04           LDA EntryLo,X
+0837 85 62              STA SP
+0839 bd df 04           LDA EntryHi,X
+083c 85 63              STA SP+1
+083e a0 00              LDY #0
+0840 b1 5e    ShEn20    LDA (BP),Y
+0842 f0 13              BEQ ShEn99
+0844 c9 22              CMP #$22            ; hide quote
+0846 d0 02              BNE ShEn30
+0848 a9 20              LDA #' '
+084a 20 f5 07 ShEn30    JSR PET2SCR
+084d 0d 0d 05           ORA Reverse
+0850 91 62              STA (SP),Y
+0852 c8                 INY
+0853 c0 20              CPY #32
+0855 90 e9              BCC ShEn20
+0857 60       ShEn99    RTS
+
+
+              ; ***********
+0858            ShowEntries
+              ; ***********
+
+0858 ad 10 05           LDA SOD
+085b 85 5e              STA BP
+085d ad 11 05           LDA SOD+1
+0860 85 5f              STA BP+1
+0862 a2 00              LDX #0
+0864 20 0b 08 ShoE10    JSR ShowEntry
+0867 18                 CLC
+0868 a5 5e              LDA BP
+086a 69 20              ADC #$20
+086c 85 5e              STA BP
+086e 90 02              BCC ShoE20
+0870 e6 5f              INC BP+1
+0872 e8       ShoE20    INX
+0873 ec 82 04           CPX LastLine
+0876 b0 09              BCS ShoE99
+0878 8a                 TXA
+0879 6d 81 04           ADC FirstLine  ; Carry is clear
+087c cd 80 04           CMP Entries
+087f 90 e3              BCC ShoE10
+0881 60       ShoE99    RTS
+
+
+              ; ***********
+0882            RightSelect
+              ; ***********
+
+0882 ad 0e 05           LDA Select
+0885 f0 23              BEQ IncSelect  ; Unit -> Drive
+0887 c9 02              CMP #2
+0889 90 0d              BCC RiSe99     ; Drive
+088b 18                 CLC
+088c 69 12              ADC #18
+088e cd 80 04           CMP Entries
+0891 b0 05              BCS RiSe99
+0893 69 02              ADC #2
+0895 8d 0e 05           STA Select
+0898 60       RiSe99    RTS
+
+
+
+              ; **********
+0899            LeftSelect
+              ; **********
+
+0899 ad 0e 05           LDA Select
+089c c9 01              CMP #1
+089e f0 42              BEQ DecSelect  ; Unit <- Drive
+08a0 c9 17              CMP #23
+08a2 90 05              BCC LeSe99
+08a4 e9 14              SBC #20
+08a6 8d 0e 05           STA Select
+08a9 60       LeSe99    RTS
+
+
+              ; *********
+08aa            IncSelect
+              ; *********
+
+              ; Increment selection
+              ;    0 : unit
+              ;    1 : drive
+              ;  > 1 : filename
+
+08aa ae 0e 05           LDX Select
+08ad f0 2f              BEQ InSe40          ; Unit
+08af ca                 DEX
+08b0 f0 2c              BEQ InSe40          ; Drive
+08b2 ec 82 04           CPX LastLine
+08b5 90 1d              BCC InSe20
+08b7 18                 CLC                 ; Scroll display
+08b8 ad 81 04           LDA FirstLine
+08bb 6d 82 04           ADC LastLine
+08be cd 80 04           CMP Entries
+08c1 b0 16              BCS InSe30          ; At end alreay
+08c3 ee 81 04           INC FirstLine
+08c6 ad 10 05           LDA SOD             ; Advance SOD
+08c9 69 20              ADC #$20
+08cb 8d 10 05           STA SOD
+08ce 90 03              BCC InSe10
+08d0 ee 11 05           INC SOD+1
+08d3 60       InSe10    RTS
+08d4 ec 80 04 InSe20    CPX Entries
+08d7 90 05              BCC InSe40          ; in range
+08d9 a2 01    InSe30    LDX #1
+08db 8e 0e 05           STX Select          ; wrap around
+08de ee 0e 05 InSe40    INC Select
+08e1 60       InSe99    RTS
+
+
+
+              ; *********
+08e2            DecSelect
+              ; *********
+
+              ; Decrement selection
+              ;    0 : unit
+              ;    1 : drive
+              ;  > 1 : filename
+
+08e2 ae 0e 05           LDX Select
+08e5 e0 02              CPX #2              ; First file
+08e7 d0 17              BNE DeSe20
+08e9 ad 81 04           LDA FirstLine       ; Scroll display
+08ec f0 12              BEQ DeSe20
+08ee ce 81 04           DEC FirstLine
+08f1 38                 SEC
+08f2 ad 10 05           LDA SOD
+08f5 e9 20              SBC #$20
+08f7 8d 10 05           STA SOD
+08fa b0 03              BCS DeSe10
+08fc ce 11 05           DEC SOD+1
+08ff 60       DeSe10    RTS
+0900 ce 0e 05 DeSe20    DEC Select
+0903 10 0f              BPL DeSe99
+0905 ae 80 04           LDX Entries
+0908 ec 82 04           CPX LastLine
+090b 90 03              BCC DeSe30
+090d ae 82 04           LDX LastLine
+0910 e8       DeSe30    INX
+0911 8e 0e 05           STX Select          ; wrap around
+0914 60       DeSe99    RTS
+
+
+              ; *************
+0915            ShowSelection
+              ; *************
+
+0915 20 1f 07           JSR ShowUnit
+0918 20 4a 07           JSR ShowDrive
+091b 4c 58 08           JMP ShowEntries
+
+
+              ; ********
+091e            IncValue
+              ; ********
+
+091e ae 0e 05           LDX Select
+0921 d0 0c              BNE InVa10
+0923 ad 09 05           LDA Unit
+0926 c9 0b              CMP #11
+0928 b0 15              BCS InVa99
+092a ee 09 05           INC Unit
+092d d0 0d              BNE InVa20
+092f ca       InVa10    DEX
+0930 d0 0d              BNE InVa99
+0932 ad 0a 05           LDA Drive
+0935 c9 39              CMP #'9'
+0937 b0 06              BCS InVa99
+0939 ee 0a 05           INC Drive
+093c 20 0c 0a InVa20    JSR Reload
+093f 60       InVa99    RTS
+
+              ; ********
+0940            DecValue
+              ; ********
+
+0940 ae 0e 05           LDX Select
+0943 d0 0c              BNE DeVa10
+0945 ad 09 05           LDA Unit
+0948 c9 09              CMP #9
+094a 90 15              BCC DeVa99
+094c ce 09 05           DEC Unit
+094f d0 0d              BNE DeVa20
+0951 ca       DeVa10    DEX
+0952 d0 0d              BNE DeVa99
+0954 ad 0a 05           LDA Drive
+0957 c9 31              CMP #'1'
+0959 90 06              BCC DeVa99
+095b ce 0a 05           DEC Drive
+095e 20 0c 0a DeVa20    JSR Reload
+0961 60       DeVa99    RTS
+
+
+              ; **********
+0962            HomeSelect
+              ; **********
+
+0962 a9 00              LDA #0
+0964 8d 0e 05           STA Select
+0967 8d 81 04           STA FirstLine
+096a a9 20              LDA #$20
+096c 8d 10 05           STA SOD
+096f a9 0f              LDA #>Buffer
+0971 8d 11 05           STA SOD+1
+0974 60                 RTS
+
+              ; ********
+0975            MainLoop
+              ; ********
+
+0975 20 e4 ff           JSR GETIN
+0978 f0 fb              BEQ MainLoop
+097a 2c 83 04           BIT HelpScreen
+097d 10 05              BPL MaLo02
+097f 48                 PHA
+0980 20 ea 09           JSR Repaint
+0983 68                 PLA
+0984 c9 03    MaLo02    CMP #3          ; STOP key
+0986 f0 61              BEQ MaLo99
+0988 c9 09              CMP #TAB
+098a f0 54              BEQ MaLo85
+098c c9 11              CMP #CDOWN
+098e f0 50              BEQ MaLo85
+0990 c9 91    MaLo05    CMP #CUP
+0992 d0 06              BNE MaLo10
+0994 20 e2 08           JSR DecSelect
+0997 4c e3 09           JMP MaLo90
+099a c9 1d    MaLo10    CMP #CRIGHT
+099c d0 06              BNE MaLo15
+099e 20 82 08           JSR RightSelect
+09a1 4c e3 09           JMP MaLo90
+09a4 c9 9d    MaLo15    CMP #CLEFT
+09a6 d0 06              BNE MaLo20
+09a8 20 99 08           JSR LeftSelect
+09ab 4c e3 09           JMP MaLo90
+09ae c9 2b    MaLo20    CMP #'+'
+09b0 d0 06              BNE MaLo25
+09b2 20 1e 09           JSR IncValue
+09b5 4c e3 09           JMP MaLo90
+09b8 c9 2d    MaLo25    CMP #'-'
+09ba d0 06              BNE MaLo30
+09bc 20 40 09           JSR DecValue
+09bf 4c e3 09           JMP MaLo90
+09c2 c9 13    MaLo30    CMP #HOME
+09c4 d0 06              BNE MaLo35
+09c6 20 62 09           JSR HomeSelect
+09c9 4c e3 09           JMP MaLo90
+09cc c9 48    MaLo35    CMP #'H'
+09ce d0 06              BNE MaLo40
+09d0 20 eb 05           JSR ShowHelp
+09d3 4c 75 09           JMP MainLoop
+09d6 c9 0d    MaLo40    CMP #13
+09d8 d0 03              BNE MaLo45
+09da 4c fb 0d           JMP Flash
+09dd 4c 75 09 MaLo45    JMP MainLoop
+09e0 20 aa 08 MaLo85    JSR IncSelect
+09e3 20 15 09 MaLo90    JSR ShowSelection
+09e6 4c 75 09           JMP MainLoop
+09e9 60       MaLo99    RTS
+
+
+              ; *******
+09ea            Repaint
+              ; *******
+
+09ea a9 00              LDA #0
+09ec 8d 83 04           STA HelpScreen
+09ef 20 f2 0b           JSR PaintMask
+09f2 20 1f 07           JSR ShowUnit
+09f5 20 4a 07           JSR ShowDrive
+09f8 20 61 07           JSR ShowDiskName
+09fb ad 80 04           LDA Entries
+09fe f0 0b              BEQ Repa10
+0a00 a9 02              LDA #2
+0a02 8d 0e 05           STA Select
+0a05 20 58 08           JSR ShowEntries
+0a08 20 1f 07           JSR ShowUnit
+0a0b 60       Repa10    RTS
+
+
+              ; ******
+0a0c            Reload
+              ; ******
+
+0a0c a9 00              LDA #0
+0a0e 8d 80 04           STA Entries
+0a11 20 8d 0c           JSR LoadDirectory
+0a14 20 bb 07           JSR FormatEntries
+0a17 20 ea 09           JSR Repaint
+0a1a 60                 RTS
+
+
+              ; ****
+0a1b            Init
+              ; ****
+
+0a1b a9 08              LDA #8
+0a1d 8d 09 05           STA Unit
+0a20 a9 30              LDA #'0'
+0a22 8d 0a 05           STA Drive
+0a25 a9 00              LDA #0
+0a27 8d 7e 04           STA CursorRow
+0a2a 8d 7f 04           STA CursorCol
+0a2d 8d 80 04           STA Entries
+0a30 8d 08 05           STA Offset
+0a33 8d 0d 05           STA Reverse
+0a36 8d 0e 05           STA Select
+0a39 8d 81 04           STA FirstLine
+0a3c 60                 RTS
+
+              ; ****
+0a3d            Main
+              ; ****
+
+0a3d 20 5f 0a           JSR Detect_BASIC_version
+0a40 20 60 0a           JSR Detect_Screen_Width
+0a43 20 70 0a           JSR SetupScreen
+0a46 20 ea 09           JSR Repaint
+0a49 20 97 0a           JSR SetupEntries
+0a4c 20 1b 0a           JSR Init
+0a4f 20 0c 0a           JSR Reload
+0a52 20 75 09           JSR MainLoop
+0a55 20 86 06           JSR Flush_Keyboard_Queue
+0a58 a9 75              LDA #<Msg_READY
+0a5a a0 04              LDY #>Msg_READY
+0a5c 4c 03 b4           JMP READY
+
+
+
+              ; ********************
+0a5f            Detect_BASIC_version
+              ; ********************
+              ; TODO: detect BASIC version and patch vectors
+0a5f 60                 RTS
+
+              ; *******************
+0a60            Detect_Screen_Width
+              ; *******************
+              ; TODO: detect Screen Width
+0a60 a9 50              LDA #80
+0a62 8d 7c 04           STA Cols
+0a65 a9 02              LDA #2
+0a67 8d 84 04           STA Pages
+0a6a a9 28              LDA #40
+0a6c 8d 82 04           STA LastLine
+0a6f 60                 RTS
+
+
+              ; ***********
+0a70            SetupScreen
+              ; ***********
+
+0a70 a9 93              LDA #CLR
+0a72 20 d2 ff           JSR CHROUT          ; clear screen
+0a75 a9 82              LDA #130
+0a77 20 d2 ff           JSR CHROUT          ; legacy character set
+0a7a a9 00              LDA #<Screen
+0a7c a2 80              LDX #>Screen
+0a7e a0 00              LDY #0
+0a80 99 85 04 SeSe10    STA ScreenLo,Y
+0a83 8a                 TXA
+0a84 99 9e 04           STA ScreenHi,Y
+0a87 18                 CLC
+0a88 b9 85 04           LDA ScreenLo,Y
+0a8b 6d 7c 04           ADC Cols
+0a8e 90 01              BCC SeSe20
+0a90 e8                 INX
+0a91 c8       SeSe20    INY
+0a92 c0 19              CPY #ROWS
+0a94 90 ea              BCC SeSe10
+0a96 60                 RTS
+
+
+              ; ************
+0a97            SetupEntries
+              ; ************
+
+0a97 a0 00              LDY #0
+0a99 b9 89 04 SeEn10    LDA ScreenLo+4,Y
+0a9c be a2 04           LDX ScreenHi+4,Y
+0a9f 09 01              ORA #1
+0aa1 99 b7 04           STA EntryLo,Y
+0aa4 48                 PHA
+0aa5 8a                 TXA
+0aa6 99 df 04           STA EntryHi,Y
+0aa9 68                 PLA
+0aaa 18                 CLC
+0aab 69 28              ADC #40
+0aad 99 cb 04           STA EntryLo+EntriesPerPage,Y
+0ab0 90 01              BCC SeEn20
+0ab2 e8                 INX
+0ab3 8a       SeEn20    TXA
+0ab4 99 f3 04           STA EntryHi+EntriesPerPage,Y
+0ab7 c8                 INY
+0ab8 c0 14              CPY #EntriesPerPage
+0aba 90 dd              BCC SeEn10
+0abc 60                 RTS
+
+
+              ; ********
+0abd            HorLine
+              ; ********
+
+              ; Draw a horizontal line
+              ; (X)   = Row
+              ; (Y)   = Start column
+              ; Count = Last  column + 1
+
+0abd 18                CLC
+0abe bd 85 04          LDA ScreenLo,X
+0ac1 6d 08 05          ADC Offset
+0ac4 85 62             STA SP
+0ac6 bd 9e 04          LDA ScreenHi,X
+0ac9 69 00             ADC #0
+0acb 85 63             STA SP+1
+0acd a9 40             LDA #HOR_BAR
+0acf 91 62    HoLi10   STA (SP),Y
+0ad1 c8                INY
+0ad2 cc 7d 04          CPY Count
+0ad5 90 f8             BCC HoLi10
+0ad7 60                RTS
+
+              ; ********
+0ad8            VerLine
+              ; ********
+
+              ; Draw a vertical line
+              ; (Y)   = Column
+              ; (X)   = Start row
+              ; Count = Last  row + 1
+
+0ad8 18                CLC
+0ad9 98                TYA
+0ada 6d 08 05          ADC Offset
+0add a8                TAY
+0ade bd 85 04 VeLi10   LDA ScreenLo,X
+0ae1 85 62             STA SP
+0ae3 bd 9e 04          LDA ScreenHi,X
+0ae6 85 63             STA SP+1
+0ae8 a9 5d             LDA #VER_BAR
+0aea 91 62             STA (SP),Y
+0aec e8                INX
+0aed ec 7d 04          CPX Count
+0af0 90 ec             BCC VeLi10
+0af2 60                RTS
+
+
+              ; ******
+0af3            GotoXY
+              ; ******
+
+0af3 8e 7e 04           STX CursorRow
+0af6 8c 7f 04           STY CursorCol
+0af9 60                 RTS
+
+              ; *******
+0afa            PutChar
+              ; *******
+
+0afa 48                 PHA                ; A = Char
+0afb ae 7e 04           LDX CursorRow
+0afe 18                 CLC
+0aff bd 85 04           LDA ScreenLo,X
+0b02 6d 7f 04           ADC CursorCol
+0b05 85 62              STA SP
+0b07 bd 9e 04           LDA ScreenHi,X
+0b0a 69 00              ADC #0
+0b0c 85 63              STA SP+1
+0b0e 68                 PLA
+0b0f a0 00              LDY #0
+0b11 91 62              STA (SP),Y
+0b13 ee 7f 04           INC CursorCol
+0b16 60                 RTS
+
+
+              ; ********
+0b17            PutCharR
+              ; ********
+
+0b17 48                 PHA                ; A = Char
+0b18 ae 7e 04           LDX CursorRow
+0b1b 18                 CLC
+0b1c bd 85 04           LDA ScreenLo,X
+0b1f 6d 7f 04           ADC CursorCol
+0b22 85 62              STA SP
+0b24 bd 9e 04           LDA ScreenHi,X
+0b27 69 00              ADC #0
+0b29 85 63              STA SP+1
+0b2b 68                 PLA
+0b2c a0 00              LDY #0
+0b2e 20 f5 07           JSR PET2SCR
+0b31 0d 0d 05           ORA Reverse
+0b34 91 62              STA (SP),Y
+0b36 ee 7f 04           INC CursorCol
+0b39 60                 RTS
+
+
+              ; *********
+0b3a            PutString
+              ; *********
+
+0b3a 86 60              STX STP
+0b3c 84 61              STY STP+1
+0b3e a0 00              LDY #0
+0b40 b1 60              LDA (STP),Y
+0b42 f0 1c              BEQ PuSt99
+0b44 20 f5 07           JSR PET2SCR
+0b47 20 17 0b           JSR PutCharR
+0b4a c8       PuSt10    INY
+0b4b c0 50              CPY #80
+0b4d b0 11              BCS PuSt99      ; safety exit
+0b4f b1 60              LDA (STP),Y
+0b51 f0 0d              BEQ PuSt99
+0b53 20 f5 07           JSR PET2SCR
+0b56 0d 0d 05           ORA Reverse
+0b59 91 62              STA (SP),Y
+0b5b ee 7f 04           INC CursorCol
+0b5e d0 ea              BNE PuSt10
+0b60 60       PuSt99    RTS
+
+              ; ******
+0b61            PlotAt
+              ; ******
+
+0b61 48                PHA              ; X = Row
+0b62 18                CLC              ; Y = Col
+0b63 98                TYA              ; A = Char
+0b64 6d 08 05          ADC Offset
+0b67 a8                TAY
+0b68 bd 85 04          LDA ScreenLo,X
+0b6b 85 62             STA SP
+0b6d bd 9e 04          LDA ScreenHi,X
+0b70 85 63             STA SP+1
+0b72 68                PLA
+0b73 91 62             STA (SP),Y
+0b75 60                RTS
+
+              ; *******
+0b76            PlotAtR
+              ; *******
+
+0b76 48                PHA              ; X = Row
+0b77 18                CLC              ; Y = Col
+0b78 98                TYA              ; A = Char
+0b79 6d 08 05          ADC Offset
+0b7c a8                TAY
+0b7d bd 85 04          LDA ScreenLo,X
+0b80 85 62             STA SP
+0b82 bd 9e 04          LDA ScreenHi,X
+0b85 85 63             STA SP+1
+0b87 68                PLA
+0b88 0d 0d 05          ORA Reverse
+0b8b 91 62             STA (SP),Y
+0b8d 60                RTS
+
+              ; *********
+0b8e            PaintPage
+              ; *********
+
+0b8e a2 27              LDX #39
+0b90 8e 7d 04           STX Count
+0b93 a2 01              LDX #1
+0b95 a0 01              LDY #1
+0b97 20 bd 0a           JSR HorLine
+0b9a a2 03              LDX #3
+0b9c a0 01              LDY #1
+0b9e 20 bd 0a           JSR HorLine
+0ba1 a2 18              LDX #24
+0ba3 a0 01              LDY #1
+0ba5 20 bd 0a           JSR HorLine
+0ba8 a2 18              LDX #24
+0baa 8e 7d 04           STX Count
+0bad a2 01              LDX #1
+0baf a0 00              LDY #0
+0bb1 20 d8 0a           JSR VerLine
+0bb4 a2 01              LDX #1
+0bb6 a0 27              LDY #39
+0bb8 20 d8 0a           JSR VerLine
+                        MAC_Plot( 1, 0,UL)
+0bbb a9 70              LDA #UL
+0bbd a2 01              LDX #1
+0bbf a0 00              LDY #0
+0bc1 20 61 0b           JSR PlotAt
+
+                        MAC_Plot( 1,39,UR)
+0bc4 a9 6e              LDA #UR
+0bc6 a2 01              LDX #1
+0bc8 a0 27              LDY #39
+0bca 20 61 0b           JSR PlotAt
+
+                        MAC_Plot(24, 0,LL)
+0bcd a9 6d              LDA #LL
+0bcf a2 18              LDX #24
+0bd1 a0 00              LDY #0
+0bd3 20 61 0b           JSR PlotAt
+
+                        MAC_Plot(24,39,LR)
+0bd6 a9 7d              LDA #LR
+0bd8 a2 18              LDX #24
+0bda a0 27              LDY #39
+0bdc 20 61 0b           JSR PlotAt
+
+                        MAC_Plot( 3, 0,TL)
+0bdf a9 6b              LDA #TL
+0be1 a2 03              LDX #3
+0be3 a0 00              LDY #0
+0be5 20 61 0b           JSR PlotAt
+
+                        MAC_Plot( 3,39,TR)
+0be8 a9 73              LDA #TR
+0bea a2 03              LDX #3
+0bec a0 27              LDY #39
+0bee 20 61 0b           JSR PlotAt
+
+0bf1 60                 RTS
+
+              ; *********
+0bf2            PaintMask
+              ; *********
+
+0bf2 a9 8e              LDA #142         ; Screen Mode
+0bf4 20 d2 ff           JSR BSOUT
+0bf7 a9 93              LDA #CLR
+0bf9 20 d2 ff           JSR BSOUT        ; clear screen
+0bfc 20 d2 ff           JSR BSOUT        ; amd remove window settings
+0bff a9 0e              LDA #14
+0c01 8d 4c e8           STA $e84c        ; text char set
+0c04 ad 84 04           LDA Pages
+0c07 8d 07 05           STA Page
+0c0a a9 00              LDA #0
+0c0c 8d 08 05           STA Offset
+0c0f 20 8e 0b PaMa10    JSR PaintPage
+0c12 18                 CLC
+0c13 ad 08 05           LDA Offset
+0c16 69 28              ADC #40
+0c18 8d 08 05           STA Offset
+0c1b ce 07 05           DEC Page
+0c1e d0 ef              BNE PaMa10
+0c20 a9 00              LDA #0
+0c22 8d 08 05           STA Offset
+                        MAC_PutString(2,1,UnitText)
+0c25 a2 02              LDX #2
+0c27 a0 01              LDY #1
+0c29 20 f3 0a           JSR GotoXY
+0c2c a2 32              LDX #<UnitText
+0c2e a0 04              LDY #>UnitText
+0c30 20 3a 0b           JSR PutString
+
+                        MAC_PutString(2,9,DriveText)
+0c33 a2 02              LDX #2
+0c35 a0 09              LDY #9
+0c37 20 f3 0a           JSR GotoXY
+0c3a a2 38              LDX #<DriveText
+0c3c a0 04              LDY #>DriveText
+0c3e 20 3a 0b           JSR PutString
+
+0c41 a9 80              LDA #$80
+0c43 8d 0d 05           STA Reverse
+                        MAC_PutString(0,19,ProgramText)
+0c46 a2 00              LDX #0
+0c48 a0 13              LDY #19
+0c4a 20 f3 0a           JSR GotoXY
+0c4d a2 4a              LDX #<ProgramText
+0c4f a0 04              LDY #>ProgramText
+0c51 20 3a 0b           JSR PutString
+
+0c54 a9 00              LDA #0
+0c56 8d 0d 05           STA Reverse
+                        MAC_PutString(0,69,HelpText)
+0c59 a2 00              LDX #0
+0c5b a0 45              LDY #69
+0c5d 20 f3 0a           JSR GotoXY
+0c60 a2 3f              LDX #<HelpText
+0c62 a0 04              LDY #>HelpText
+0c64 20 3a 0b           JSR PutString
+
+0c67 60                 RTS
+
+
+
+              ; *************
+0c68            GetDiskStatus
+              ; *************
+
+0c68 ad 09 05           LDA Unit
+0c6b 85 d4              STA FA
+0c6d 20 d2 f0           JSR TALK
+0c70 a9 6f              LDA #$6f
+0c72 20 93 f1           JSR TKSA
+0c75 a0 00              LDY #0
+0c77 20 c0 f1 gss_10    JSR ACPTR
+0c7a c9 20              CMP #' '
+0c7c 90 0b              BCC gss_20
+0c7e 20 f5 07           JSR PET2SCR
+0c81 99 c9 80           STA DiskStatus,Y
+0c84 c8                 INY
+0c85 c0 28              CPY #40
+0c87 90 ee              BCC gss_10
+0c89 20 ae f1 gss_20    JSR UNTLK
+0c8c 60                 RTS
+
+
+              ; *************
+0c8d            LoadDirectory
+              ; *************
+
+0c8d a9 00              LDA #<Buffer        ; Initialize buffer pointer BP
+0c8f 85 5e              STA BP              ; and End Of Directory EOD
+0c91 8d 12 05           STA EOD
+0c94 a9 20              LDA #$20
+0c96 8d 10 05           STA SOD
+0c99 a9 0f              LDA #>Buffer
+0c9b 85 5f              STA BP+1
+0c9d 8d 13 05           STA EOD+1
+0ca0 8d 11 05           STA SOD+1
+0ca3 a0 00              LDY #0
+0ca5 98                 TYA
+0ca6 99 00 0f LoDi05    STA Buffer,Y
+0ca9 c8                 INY
+0caa d0 fa              BNE LoDi05
+0cac ad 09 05           LDA Unit            ; Send LOAD "$n" to Unit
+0caf 85 d4              STA FA
+0cb1 20 d5 f0           JSR LISTEN
+0cb4 a9 f0              LDA #$f0
+0cb6 20 43 f1           JSR SECOND
+0cb9 a9 24              LDA #'$'
+0cbb 20 9e f1           JSR CIOUT
+0cbe ad 0a 05           LDA Drive
+0cc1 20 9e f1           JSR CIOUT
+0cc4 20 b9 f1           JSR UNLSN
+0cc7 20 68 0c           JSR GetDiskStatus
+0cca ad c9 80           LDA DiskStatus
+0ccd c9 30              CMP #'0'
+0ccf d0 2b              BNE LoDi99
+0cd1 20 d2 f0           JSR TALK
+0cd4 a9 60              LDA #$60
+0cd6 20 93 f1           JSR TKSA
+0cd9 a9 bd              LDA #$bd
+0cdb 25 96              AND STATUS
+0cdd 85 96              STA STATUS
+0cdf a0 00              LDY #0
+0ce1 20 c0 f1 LoDi10    JSR ACPTR
+0ce4 91 5e              STA (BP),Y
+0ce6 24 96              BIT STATUS
+0ce8 70 07              BVS LoDi20
+0cea c8                 INY
+0ceb d0 f4              BNE LoDi10
+0ced e6 5f              INC BP+1
+0cef 10 f0              BPL LoDi10
+0cf1 20 ae f1 LoDi20    JSR UNTLK
+0cf4 8c 12 05           STY EOD
+0cf7 a5 5f              LDA BP+1
+0cf9 8d 13 05           STA EOD+1
+0cfc 4c b1 0d LoDi99    JMP Close_Disk_File
+
+              ; **************
+0cff            GetLoadAddress
+              ; **************
+
+0cff a0 1e              LDY #$1e
+0d01 a9 00              LDA #0
+0d03 91 5e              STA (BP),Y          ; new end of string
+0d05 a0 16              LDY #$16            ; position of file type
+0d07 b1 5e              LDA (BP),Y
+0d09 c9 50              CMP #'P'            ; PRG files only
+0d0b d0 50              BNE GLA99
+0d0d ad 09 05           LDA Unit            ; send LOAD "Filename" to Unit
+0d10 85 d4              STA FA
+0d12 20 d5 f0           JSR LISTEN
+0d15 a9 f0              LDA #$f0
+0d17 20 43 f1           JSR SECOND
+0d1a a0 04              LDY #4              ; start of ilename
+0d1c b1 5e    GLA10     LDA (BP),Y
+0d1e c9 22              CMP #$22            ; quote marks end of filename
+0d20 f0 08              BEQ GLA20
+0d22 20 9e f1           JSR CIOUT
+0d25 c8                 INY
+0d26 c0 14              CPY #20
+0d28 90 f2              BCC GLA10
+0d2a 20 b9 f1 GLA20     JSR UNLSN
+0d2d 20 68 0c           JSR GetDiskStatus
+0d30 ad c9 80           LDA DiskStatus
+0d33 c9 30              CMP #'0'
+0d35 d0 26              BNE GLA99
+0d37 20 d2 f0           JSR TALK
+0d3a a9 60              LDA #$60
+0d3c 20 93 f1           JSR TKSA
+0d3f 20 c0 f1           JSR ACPTR
+0d42 20 60 0d           JSR ASCII_Hex
+0d45 a0 1d              LDY #$1d             ; load address low
+0d47 91 5e              STA (BP),Y
+0d49 88                 DEY
+0d4a 8a                 TXA
+0d4b 91 5e              STA (BP),Y
+0d4d 20 c0 f1           JSR ACPTR
+0d50 20 60 0d           JSR ASCII_Hex
+0d53 88                 DEY                  ; load address high
+0d54 91 5e              STA (BP),Y
+0d56 88                 DEY
+0d57 8a                 TXA
+0d58 91 5e              STA (BP),Y
+0d5a 20 ae f1           JSR UNTLK
+0d5d 4c b1 0d GLA99     JMP Close_Disk_File
+
+              ; **********
+0d60            ASCII_Hex
+              ; **********
+
+              ; Input:  (A)
+              ; Output: (X) = High nibble (A) = Low nibble
+0d60 48                PHA
+0d61 4a                LSR A
+0d62 4a                LSR A
+0d63 4a                LSR A
+0d64 4a                LSR A
+0d65 09 30             ORA #'0'
+0d67 c9 3a             CMP #$3a
+0d69 90 02             BCC Hex_11
+0d6b 69 06             ADC #6
+0d6d aa       Hex_11   TAX
+0d6e 68                PLA
+0d6f 29 0f             AND #15
+0d71 09 30             ORA #'0'
+0d73 c9 3a             CMP #$3a
+0d75 90 02             BCC Hex_12
+0d77 69 06             ADC #6
+0d79 60       Hex_12   RTS
+
+              ; *********
+0d7a            Load_File
+              ; *********
+
+0d7a 20 bc 0d           JSR Send_Filename
+0d7d 20 d2 f0           JSR TALK            ; send primary address
+0d80 a9 60              LDA #$60
+0d82 20 93 f1           JSR TKSA            ; send secondary address
+0d85 20 c0 f1           JSR ACPTR           ; read first byte
+0d88 a8                 TAY                 ; flash start address
+0d89 a5 96              LDA STATUS          ; check time out bit
+0d8b f0 00              BEQ LoFi_22         ; no time out -> continue
+              ;         JMP Display_File_Not_Found
+0d8d 20 c0 f1 LoFi_22   JSR ACPTR
+0d90 85 ca              STA EAL+1           ; flash start address
+0d92 a9 00              LDA #0
+0d94 85 c9              STA EAL
+0d96 85 96              STA STATUS
+0d98 20 c0 f1 LoFi_30   JSR ACPTR           ; read next byte
+0d9b 91 c9              STA (EAL),Y         ; store byte
+0d9d b1 c9    LoFi_40   LDA (EAL),Y         ; this comparison is false for an
+0d9f d1 c9              CMP (EAL),Y         ; unfinished write cycle to EEPROM
+0da1 d0 fa              BNE LoFi_40
+0da3 c8                 INY                 ; increment write address
+0da4 d0 02              BNE LoFi_60
+0da6 e6 ca              INC EAL+1
+0da8 a5 96    LoFi_60   LDA STATUS          ; Get EOF marker in bit 6
+0daa f0 ec              BEQ LoFi_30         ; repeat until EOF or ERROR
+0dac 84 c9              STY EAL             ; store end address+1 in EAL
+0dae 20 ae f1           JSR UNTLK
+
+              ; ***************
+0db1            Close_Disk_File
+              ; ***************
+
+0db1 20 d5 f0           JSR LISTEN
+0db4 a9 e0              LDA #$e0
+0db6 20 43 f1           JSR SECOND
+0db9 4c b9 f1           JMP UNLSN
+
+              ; *************
+0dbc            Send_Filename
+              ; *************
+
+0dbc 20 d5 f0           JSR LISTEN
+0dbf a9 f0              LDA #$f0
+0dc1 20 43 f1           JSR SECOND
+0dc4 a0 00              LDY #0
+0dc6 b1 da    SeFi_10   LDA (FNADR),Y
+0dc8 20 9e f1           JSR CIOUT
+0dcb c8                 INY
+0dcc c4 d1              CPY FNLEN
+0dce 90 f6              BCC SeFi_10
+0dd0 4c b9 f1 SeFi_20   JMP UNLSN
+
+              ; **************
+0dd3            Setup_Filename
+              ; **************
+
+0dd3 18                 CLC
+0dd4 a5 66              LDA SelPtr
+0dd6 69 04              ADC #4
+0dd8 85 64              STA TP
+0dda a5 67              LDA SelPtr+1
+0ddc 69 00              ADC #0
+0dde 85 65              STA TP+1
+0de0 a0 00              LDY #0
+0de2 b1 64    SpFi_10   LDA (TP),Y
+0de4 c9 22              CMP #$22
+0de6 f0 08              BEQ SpFi_20
+0de8 99 42 03           STA DOS_Filename,Y
+0deb c8                 INY
+0dec c0 10              CPY #16
+0dee 90 f2              BCC SpFi_10
+0df0 84 d1    SpFi_20   STY FNLEN
+0df2 a9 42              LDA #<DOS_Filename
+0df4 85 da              STA FNADR
+0df6 a9 03              LDA #>DOS_Filename
+0df8 85 db              STA FNADR+1
+0dfa 60                 RTS
+
+
+              ; *****
+0dfb            Flash
+              ; *****
+
+0dfb 20 d3 0d           JSR Setup_Filename
+0dfe 20 7a 0d           JSR Load_File
+              ;         JSR Verify_File
+0e01 60                 RTS
+
+
+0e02          EOP       ; END-OF-PROGRAM
+
+
+  240 Symbols
 -------------
-C8296                          $0000    31D    33 
-HelpLines                      $0007   202D   238 
-PosDiskName                    $0008    90D   439    441    442    443 
-TAB                            $0009    17D   776 
-CR                             $000d    18D
-CDOWN                          $0011    22D   778 
-HOME                           $0013    19D   800 
-EntriesPerPage                 $0014    83D   939    943    945 
-DEL                            $0014    20D
-ROWS                           $0019    57D   919 
-PosDiskID                      $001a    91D
-CRIGHT                         $001d    23D   784 
-HelpLen                        $001e   201D   252 
-HOR_BAR                        $0040    47D   966 
-VER_BAR                        $005d    48D   990 
-BP                             $005e    63D   450    452    455y   458y
-                                       462y   466y   475y   480y   493 
-                                       495    497y   506    508    510 
-                                       512    514    559y   578    580 
-                                       584    586    588   1200   1205 
-                                      1235y  1240   1244   1254y  1256y
-                                      1265y  1283y  1286y  1290y  1293y
-STP                            $0060    64D   251    254    451    453 
-                                       469    470y   479y  1052   1053 
-                                      1055y  1062y
-SP                             $0062    65D   283    284    286y   555 
-                                       557    566y   962    965    967y
-                                       987    989    991y  1015   1018 
-                                      1021y  1035   1038   1043y  1066y
-                                      1081   1083   1085y  1098   1100 
-                                      1103y
-TL                             $006b    53D  1133 
-LL                             $006d    51D   236   1131 
-UR                             $006e    50D   235   1130 
-UL                             $0070    49D   234   1129 
-TR                             $0073    54D  1134 
-LR                             $007d    52D   237   1132 
-CUP                            $0091    24D   780 
-CLR                            $0093    21D  1143 
-STATUS                         $0096    71D  1231   1232   1236 
-STKEY                          $009b    72D   268 
-CLEFT                          $009d    25D   788 
-BLNSW                          $00a7    73D
-BLNCT                          $00a8    74D
-BLNON                          $00aa    75D
-FA                             $00d4    76D  1178   1214   1260 
-Link                           $0401   147D
-START                          $0401   140D   142    145    145 
-Linenumber                     $0403   150D
-SysCommand                     $0405   156D
-StartML                        $0406   160D
-LineEnd                        $0426   163D
-EndLink                        $0427   164D   147 
-NUMBER                         $042c   168D   341    355    369    376 
-                                       378    381    384    461 
-UnitText                       $0432   169D  1161   1161 
-DriveText                      $0438   170D  1162   1162 
-HelpText                       $043f   171D  1168   1168 
-ProgramText                    $044a   172D  1165   1165 
-Msg_READY                      $0475   173D   878    879 
-Cols                           $047c   174D   895    915 
-Count                          $047d   175D   219    227    239    257 
-                                       969    993   1111   1122 
-CursorRow                      $047e   176D   246    857   1002   1011 
-                                      1031 
-CursorCol                      $047f   177D   858   1003   1014   1022 
-                                      1034   1044   1067 
-Entries                        $0480   178D   482    491    502    594 
-                                       609    649    658    691    827 
-                                       841    859 
-FirstLine                      $0481   179D   593    647    651    679 
-                                       681    756    863 
-LastLine                       $0482   180D   544    590    644    648 
-                                       692    694    899 
-HelpScreen                     $0483   181D   260    769    822 
-Pages                          $0484   182D   897   1148 
-ScreenLo                       $0485   183D   910    914    929    960 
-                                       986   1013   1033   1080   1097 
-ScreenHi                       $049e   184D   912    930    963    988 
-                                      1016   1036   1082   1099 
-EntryLo                        $04b7   185D   554    932    939 
-EntryHi                        $04df   186D   556    935    943 
-Page                           $0507   187D  1149   1157 
-Offset                         $0508   188D   217    860    961    984 
-                                      1078   1095   1151   1154   1156 
-                                      1160 
-Unit                           $0509   189D   403    715    718    735 
-                                       738    853   1177   1213   1259 
-Drive                          $050a   190D   425    722    725    742 
-                                       745    855   1220 
-LV0                            $050b   191D   333    342    347    356 
-                                       361    370 
-LV1                            $050c   192D   334    338    343    348 
-                                       352    357    362    366 
-Reverse                        $050d   193D   399    424    553    565 
-                                       861   1042   1065   1102   1164 
-                                      1167 
-Select                         $050e   194D   396    420    550    603 
-                                       612    621    627    640    661 
-                                       662    676    689    696    713 
-                                       733    755    830    862 
-FirstFile                      $050f   195D
-SOD                            $0510   196D   577    579    652    654 
-                                       656    683    685    687    758 
-                                       760   1203   1207 
-EOD                            $0512   197D   511    513   1201   1206 
-                                      1243   1245 
-HelpWin                        $0514   203D   243    244 
-ShowHelp                       $05e6   213D   806 
-ShHe10                         $0645   245D   258 
-STOP                           $0667   266D
-Error_Beep                     $066c   273D
-PrintText                      $0671   280D
-PrTe_10                        $0677   286D   290 
-Flush_Keyboard_Queue           $0681   294D   298    877 
-FormatByte                     $0687   302D   404 
-asts_01                        $068c   311D   313 
-asts_rt                        $069e   323D   316 
-FormatInteger                  $069f   327D   459 
-FORINT_01                      $06a2   332D   340 
-FORINT_02                      $06c0   346D   354 
-FORINT_03                      $06de   360D   368 
-FORINT_04                      $06f9   373D   375 
-FORINT_05                      $070a   381D   387 
-FORINT_06                      $0719   388D   383 
-ShowUnit                       $071a   392D   704    824    832 
-ShUn10                         $0723   399D   397 
-ShUn20                         $073d   411D   406 
-ShowDrive                      $0745   416D   705    825 
-ShDr10                         $074f   424D   422 
-ShowDiskName                   $075c   432D   826 
-FormatFilename                 $0774   447D   500 
-FoFi10                         $0789   461D   465 
-FoFi20                         $0799   469D   472    474 
-FoFi40                         $07a7   476D   481 
-FoFi50                         $07ac   479D
-FoFi99                         $07b5   483D   468    478 
-FormatEntries                  $07b6   487D   843 
-FoEn10                         $07c3   496D   515 
-FoEn20                         $07e3   511D   509 
-FoEn99                         $07ef   516D   499 
-PET2SCR                        $07f0   520D   564   1041   1057   1064 
-                                      1186 
-P2C10                          $07fb   529D   526 
-P2C99                          $0805   534D   524    530    532 
-ShowEntry                      $0806   537D   504    582 
-ShEn10                         $0818   553D   551 
-ShEn20                         $0827   559D   569 
-ShEn30                         $0831   564D   562 
-ShEn99                         $083e   570D   545    560 
-ShowEntries                    $083f   574D   706    831 
-ShoE10                         $084b   582D   595 
-ShoE20                         $0859   589D   587 
-ShoE99                         $0868   596D   591 
-RightSelect                    $0869   600D   786 
-RiSe99                         $087f   613D   606    610 
-LeftSelect                     $0880   618D   790 
-LeSe99                         $0890   628D   625 
-IncSelect                      $0891   632D   604    811 
-InSe10                         $08ba   657D   655 
-InSe20                         $08bb   658D   645 
-InSe30                         $08c0   660D   650 
-InSe40                         $08c5   662D   641    643    659 
-InSe99                         $08c8   663D
-DecSelect                      $08c9   668D   623    782 
-DeSe10                         $08e6   688D   686 
-DeSe20                         $08e7   689D   678    680 
-DeSe30                         $08f7   695D   693 
-DeSe99                         $08fb   697D   690 
-ShowSelection                  $08fc   701D   812 
-IncValue                       $0905   710D   794 
-InVa10                         $0916   720D   714 
-InVa20                         $0923   726D   719 
-InVa99                         $0926   727D   717    721    724 
-DecValue                       $0927   730D   798 
-DeVa10                         $0938   740D   734 
-DeVa20                         $0945   746D   739 
-DeVa99                         $0948   747D   737    741    744 
-HomeSelect                     $0949   751D   802 
-MainLoop                       $095c   764D   768    807    810    813 
-                                       876 
-MaLo02                         $096b   774D   770 
-MaLo05                         $0977   780D
-MaLo10                         $0981   784D   781 
-MaLo15                         $098b   788D   785 
-MaLo20                         $0995   792D   789 
-MaLo25                         $099f   796D   793 
-MaLo30                         $09a9   800D   797 
-MaLo35                         $09b3   804D   801 
-MaLo40                         $09bd   808D   805 
-MaLo85                         $09c0   811D   777    779 
-MaLo90                         $09c3   812D   783    787    791    795 
-                                       799    803 
-MaLo99                         $09c9   814D   775 
-Repaint                        $09ca   818D   772    844 
-Repa10                         $09eb   833D   828 
-Reload                         $09ec   837D   726    746    875 
-Init                           $09fb   849D   874 
-Main                           $0a1d   867D   166 
-Detect_BASIC_version           $0a3c   885D   870 
-Detect_Screen_Width            $0a3d   891D   871 
-SetupScreen                    $0a4d   904D   872 
-SeSe10                         $0a53   910D   920 
-SeSe20                         $0a64   918D   916 
-SetupEntries                   $0a6a   925D   873 
-SeEn10                         $0a6c   929D   946 
-SeEn20                         $0a86   942D   940 
-HorLine                        $0a90   951D   222    225   1114   1117 
-                                      1120 
-HoLi10                         $0aa2   967D   970 
-VerLine                        $0aab   974D   230    233   1125   1128 
-VeLi10                         $0ab1   986D   994 
-GotoXY                         $0ac6   999D   242    249    402    437 
-                                      1161   1162   1165   1168 
-PutChar                        $0acd  1007D   413 
-PutCharR                       $0aea  1027D   409    411   1058 
-PutString                      $0b0d  1049D   245    444   1161   1162 
-                                      1165   1168 
-PuSt10                         $0b1d  1059D  1068 
-PuSt99                         $0b33  1069D  1056   1061   1063 
-PlotAt                         $0b34  1072D   234    235    236    237 
-                                      1129   1130   1131   1132   1133 
-                                      1134 
-PlotAtR                        $0b49  1089D   428 
-PaintPage                      $0b61  1107D  1152 
-PaintMask                      $0bc5  1138D   823 
-PaMa10                         $0be2  1152D  1158 
-GetDiskStatus                  $0c3b  1174D  1223   1273 
-gss_10                         $0c4a  1183D  1190 
-gss_20                         $0c5c  1191D  1185 
-LoadDirectory                  $0c60  1196D   842 
-LoDi05                         $0c79  1210D  1212 
-LoDi10                         $0cb4  1234D  1239   1241 
-LoDi20                         $0cc4  1242D  1237 
-LoDi99                         $0ccf  1246D  1226 
-GetLoadAddress                 $0cd0  1249D   501 
-GLA10                          $0ced  1265D  1271 
-GLA20                          $0cfb  1272D  1267 
-GLA99                          $0d2e  1295D  1258   1276 
-ASCII_Hex                      $0d2f  1298D  1281   1288 
-Hex_11                         $0d3c  1312D  1310 
-Hex_12                         $0d48  1319D  1317 
-EOP                            $0d49  1322D    89    145 
-Buffer                         $0e00    89D   439    441    442    443 
-                                       494    759   1199   1204   1210 
-Screen                         $8000    82D   907    908 
-DiskStatus                     $80c9   199D  1187   1224   1274 
-READY                          $b403    97D   880 
-TALK                           $f0d2    98D  1179   1227   1277 
-LISTEN                         $f0d5    99D  1215   1261 
-SECOND                         $f143   100D  1217   1263 
-TKSA                           $f193   101D  1181   1229   1279 
-CIOUT                          $f19e   102D  1219   1221   1268 
-UNTLK                          $f1ae   103D  1191   1242   1294 
-UNLSN                          $f1b9   104D  1222   1272 
-ACPTR                          $f1c0   105D  1183   1234   1280   1287 
-BSOUT                          $ffd2   106D   277    287   1142   1144 
-                                      1145 
-GETIN                          $ffe4   107D   297    767 
-BP                             $005e    63D   450    452    455y   458y
-                                       462y   466y   475y   480y   493 
-                                       495    497y   506    508    510 
-                                       512    514    559y   578    580 
-                                       584    586    588   1200   1205 
-                                      1235y  1240   1244   1254y  1256y
-                                      1265y  1283y  1286y  1290y  1293y
-SP                             $0062    65D   283    284    286y   555 
-                                       557    566y   962    965    967y
-                                       987    989    991y  1015   1018 
-                                      1021y  1035   1038   1043y  1066y
-                                      1081   1083   1085y  1098   1100 
-                                      1103y
-STP                            $0060    64D   251    254    451    453 
-                                       469    470y   479y  1052   1053 
-                                      1055y  1062y
-PosDiskName                    $0008    90D   439    441    442    443 
-FA                             $00d4    76D  1178   1214   1260 
-STATUS                         $0096    71D  1231   1232   1236 
-EntriesPerPage                 $0014    83D   939    943    945 
-LR                             $007d    52D   237   1132 
-UL                             $0070    49D   234   1129 
-UR                             $006e    50D   235   1130 
-LL                             $006d    51D   236   1131 
-CLEFT                          $009d    25D   788 
-STKEY                          $009b    72D   268 
-CLR                            $0093    21D  1143 
-CUP                            $0091    24D   780 
-TR                             $0073    54D  1134 
-TL                             $006b    53D  1133 
-VER_BAR                        $005d    48D   990 
-HOR_BAR                        $0040    47D   966 
-HelpLen                        $001e   201D   252 
-CRIGHT                         $001d    23D   784 
-ROWS                           $0019    57D   919 
-HOME                           $0013    19D   800 
-CDOWN                          $0011    22D   778 
-TAB                            $0009    17D   776 
-HelpLines                      $0007   202D   238 
-C8296                          $0000    31D    33 
-BLNON                          $00aa    75D
-BLNCT                          $00a8    74D
-BLNSW                          $00a7    73D
-PosDiskID                      $001a    91D
-DEL                            $0014    20D
-CR                             $000d    18D
-BP                             $005e    63D   450    452    455y   458y
-                                       462y   466y   475y   480y   493 
-                                       495    497y   506    508    510 
-                                       512    514    559y   578    580 
-                                       584    586    588   1200   1205 
-                                      1235y  1240   1244   1254y  1256y
-                                      1265y  1283y  1286y  1290y  1293y
-SP                             $0062    65D   283    284    286y   555 
-                                       557    566y   962    965    967y
-                                       987    989    991y  1015   1018 
-                                      1021y  1035   1038   1043y  1066y
-                                      1081   1083   1085y  1098   1100 
-                                      1103y
-Select                         $050e   194D   396    420    550    603 
-                                       612    621    627    640    661 
-                                       662    676    689    696    713 
-                                       733    755    830    862 
-SOD                            $0510   196D   577    579    652    654 
-                                       656    683    685    687    758 
-                                       760   1203   1207 
-Entries                        $0480   178D   482    491    502    594 
-                                       609    649    658    691    827 
-                                       841    859 
-STP                            $0060    64D   251    254    451    453 
-                                       469    470y   479y  1052   1053 
-                                      1055y  1062y
-PlotAt                         $0b34  1072D   234    235    236    237 
-                                      1129   1130   1131   1132   1133 
-                                      1134 
-Reverse                        $050d   193D   399    424    553    565 
-                                       861   1042   1065   1102   1164 
-                                      1167 
-Offset                         $0508   188D   217    860    961    984 
-                                      1078   1095   1151   1154   1156 
-                                      1160 
-Buffer                         $0e00    89D   439    441    442    443 
-                                       494    759   1199   1204   1210 
-Unit                           $0509   189D   403    715    718    735 
-                                       738    853   1177   1213   1259 
-ScreenLo                       $0485   183D   910    914    929    960 
-                                       986   1013   1033   1080   1097 
-GotoXY                         $0ac6   999D   242    249    402    437 
-                                      1161   1162   1165   1168 
-LV1                            $050c   192D   334    338    343    348 
-                                       352    357    362    366 
-ScreenHi                       $049e   184D   912    930    963    988 
-                                      1016   1036   1082   1099 
-Count                          $047d   175D   219    227    239    257 
-                                       969    993   1111   1122 
-NUMBER                         $042c   168D   341    355    369    376 
-                                       378    381    384    461 
-Drive                          $050a   190D   425    722    725    742 
-                                       745    855   1220 
-LastLine                       $0482   180D   544    590    644    648 
-                                       692    694    899 
-FirstLine                      $0481   179D   593    647    651    679 
-                                       681    756    863 
-CursorCol                      $047f   177D   858   1003   1014   1022 
-                                      1034   1044   1067 
-PutString                      $0b0d  1049D   245    444   1161   1162 
-                                      1165   1168 
-MaLo90                         $09c3   812D   783    787    791    795 
-                                       799    803 
-EOD                            $0512   197D   511    513   1201   1206 
-                                      1243   1245 
-LV0                            $050b   191D   333    342    347    356 
-                                       361    370 
-HorLine                        $0a90   951D   222    225   1114   1117 
-                                      1120 
-MainLoop                       $095c   764D   768    807    810    813 
-                                       876 
-PET2SCR                        $07f0   520D   564   1041   1057   1064 
-                                      1186 
-CursorRow                      $047e   176D   246    857   1002   1011 
-                                      1031 
-VerLine                        $0aab   974D   230    233   1125   1128 
-PosDiskName                    $0008    90D   439    441    442    443 
-PuSt99                         $0b33  1069D  1056   1061   1063 
-PutCharR                       $0aea  1027D   409    411   1058 
-Reload                         $09ec   837D   726    746    875 
-DeVa99                         $0948   747D   737    741    744 
-InVa99                         $0926   727D   717    721    724 
-InSe40                         $08c5   662D   641    643    659 
-P2C99                          $0805   534D   524    530    532 
-ShowUnit                       $071a   392D   704    824    832 
-EntryHi                        $04df   186D   556    935    943 
-EntryLo                        $04b7   185D   554    932    939 
-HelpScreen                     $0483   181D   260    769    822 
-START                          $0401   140D   142    145    145 
-FA                             $00d4    76D  1178   1214   1260 
-STATUS                         $0096    71D  1231   1232   1236 
-EntriesPerPage                 $0014    83D   939    943    945 
-EOP                            $0d49  1322D    89    145 
-ASCII_Hex                      $0d2f  1298D  1281   1288 
-GLA99                          $0d2e  1295D  1258   1276 
-LoDi10                         $0cb4  1234D  1239   1241 
-GetDiskStatus                  $0c3b  1174D  1223   1273 
-Repaint                        $09ca   818D   772    844 
-MaLo85                         $09c0   811D   777    779 
-DeSe20                         $08e7   689D   678    680 
-DecSelect                      $08c9   668D   623    782 
-IncSelect                      $0891   632D   604    811 
-RiSe99                         $087f   613D   606    610 
-ShowEntries                    $083f   574D   706    831 
-ShEn99                         $083e   570D   545    560 
-ShowEntry                      $0806   537D   504    582 
-FoFi99                         $07b5   483D   468    478 
-FoFi20                         $0799   469D   472    474 
-ShowDrive                      $0745   416D   705    825 
-Flush_Keyboard_Queue           $0681   294D   298    877 
-HelpWin                        $0514   203D   243    244 
-Page                           $0507   187D  1149   1157 
-Pages                          $0484   182D   897   1148 
-Cols                           $047c   174D   895    915 
-Msg_READY                      $0475   173D   878    879 
-ProgramText                    $044a   172D  1165   1165 
-HelpText                       $043f   171D  1168   1168 
-DriveText                      $0438   170D  1162   1162 
-UnitText                       $0432   169D  1161   1161 
-LR                             $007d    52D   237   1132 
-UL                             $0070    49D   234   1129 
-UR                             $006e    50D   235   1130 
-LL                             $006d    51D   236   1131 
-Hex_12                         $0d48  1319D  1317 
-Hex_11                         $0d3c  1312D  1310 
-GLA20                          $0cfb  1272D  1267 
-GLA10                          $0ced  1265D  1271 
-GetLoadAddress                 $0cd0  1249D   501 
-LoDi99                         $0ccf  1246D  1226 
-LoDi20                         $0cc4  1242D  1237 
-LoDi05                         $0c79  1210D  1212 
-LoadDirectory                  $0c60  1196D   842 
-gss_20                         $0c5c  1191D  1185 
-gss_10                         $0c4a  1183D  1190 
-PaMa10                         $0be2  1152D  1158 
-PaintMask                      $0bc5  1138D   823 
-PaintPage                      $0b61  1107D  1152 
-PlotAtR                        $0b49  1089D   428 
-PuSt10                         $0b1d  1059D  1068 
-PutChar                        $0acd  1007D   413 
-VeLi10                         $0ab1   986D   994 
-HoLi10                         $0aa2   967D   970 
-SeEn20                         $0a86   942D   940 
-SeEn10                         $0a6c   929D   946 
-SetupEntries                   $0a6a   925D   873 
-SeSe20                         $0a64   918D   916 
-SeSe10                         $0a53   910D   920 
-SetupScreen                    $0a4d   904D   872 
-Detect_Screen_Width            $0a3d   891D   871 
-Detect_BASIC_version           $0a3c   885D   870 
-Main                           $0a1d   867D   166 
-Init                           $09fb   849D   874 
-Repa10                         $09eb   833D   828 
-MaLo99                         $09c9   814D   775 
-MaLo40                         $09bd   808D   805 
-MaLo35                         $09b3   804D   801 
-MaLo30                         $09a9   800D   797 
-MaLo25                         $099f   796D   793 
-MaLo20                         $0995   792D   789 
-MaLo15                         $098b   788D   785 
-MaLo10                         $0981   784D   781 
-MaLo02                         $096b   774D   770 
-HomeSelect                     $0949   751D   802 
-DeVa20                         $0945   746D   739 
-DeVa10                         $0938   740D   734 
-DecValue                       $0927   730D   798 
-InVa20                         $0923   726D   719 
-InVa10                         $0916   720D   714 
-IncValue                       $0905   710D   794 
-ShowSelection                  $08fc   701D   812 
-DeSe99                         $08fb   697D   690 
-DeSe30                         $08f7   695D   693 
-DeSe10                         $08e6   688D   686 
-InSe30                         $08c0   660D   650 
-InSe20                         $08bb   658D   645 
-InSe10                         $08ba   657D   655 
-LeSe99                         $0890   628D   625 
-LeftSelect                     $0880   618D   790 
-RightSelect                    $0869   600D   786 
-ShoE99                         $0868   596D   591 
-ShoE20                         $0859   589D   587 
-ShoE10                         $084b   582D   595 
-ShEn30                         $0831   564D   562 
-ShEn20                         $0827   559D   569 
-ShEn10                         $0818   553D   551 
-P2C10                          $07fb   529D   526 
-FoEn99                         $07ef   516D   499 
-FoEn20                         $07e3   511D   509 
-FoEn10                         $07c3   496D   515 
-FormatEntries                  $07b6   487D   843 
-FoFi40                         $07a7   476D   481 
-FoFi10                         $0789   461D   465 
-FormatFilename                 $0774   447D   500 
-ShowDiskName                   $075c   432D   826 
-ShDr10                         $074f   424D   422 
-ShUn20                         $073d   411D   406 
-ShUn10                         $0723   399D   397 
-FORINT_06                      $0719   388D   383 
-FORINT_05                      $070a   381D   387 
-FORINT_04                      $06f9   373D   375 
-FORINT_03                      $06de   360D   368 
-FORINT_02                      $06c0   346D   354 
-FORINT_01                      $06a2   332D   340 
-FormatInteger                  $069f   327D   459 
-asts_rt                        $069e   323D   316 
-asts_01                        $068c   311D   313 
-FormatByte                     $0687   302D   404 
-PrTe_10                        $0677   286D   290 
-ShHe10                         $0645   245D   258 
-ShowHelp                       $05e6   213D   806 
-EndLink                        $0427   164D   147 
-CLEFT                          $009d    25D   788 
-STKEY                          $009b    72D   268 
-CLR                            $0093    21D  1143 
-CUP                            $0091    24D   780 
-TR                             $0073    54D  1134 
-TL                             $006b    53D  1133 
-VER_BAR                        $005d    48D   990 
-HOR_BAR                        $0040    47D   966 
-HelpLen                        $001e   201D   252 
-CRIGHT                         $001d    23D   784 
-ROWS                           $0019    57D   919 
-HOME                           $0013    19D   800 
-CDOWN                          $0011    22D   778 
-TAB                            $0009    17D   776 
-HelpLines                      $0007   202D   238 
-C8296                          $0000    31D    33 
-MaLo05                         $0977   780D
-InSe99                         $08c8   663D
-FoFi50                         $07ac   479D
-PrintText                      $0671   280D
-Error_Beep                     $066c   273D
-STOP                           $0667   266D
-FirstFile                      $050f   195D
-LineEnd                        $0426   163D
-StartML                        $0406   160D
-SysCommand                     $0405   156D
-Linenumber                     $0403   150D
-Link                           $0401   147D
-BLNON                          $00aa    75D
-BLNCT                          $00a8    74D
-BLNSW                          $00a7    73D
-PosDiskID                      $001a    91D
-DEL                            $0014    20D
-CR                             $000d    18D
+C8296                          $0000    31D    33
+HelpLines                      $0007   224D   260
+PosDiskName                    $0008    98D   461    463    464    465
+TAB                            $0009    17D   806
+CR                             $000d    18
+CDOWN                          $0011    22D   808
+HOME                           $0013    19D   830
+EntriesPerPage                 $0014    91D   975    979    981
+DEL                            $0014    20
+ROWS                           $0019    57D   955
+PosDiskID                      $001a    99
+CRIGHT                         $001d    23D   814
+HelpLen                        $001e   223D   274
+HOR_BAR                        $0040    47D  1002
+VER_BAR                        $005d    48D  1026
+BP                             $005e    63D   472    474    477y   480y
+                                       484y   488y   497y   502y   515
+                                       517    519y   528    530    532
+                                       534    536    578    580    589y
+                                       608    610    614    616    618
+                                      1236   1241   1271y  1276   1280
+                                      1290y  1292y  1301y  1319y  1322y
+                                      1326y  1329
+STP                            $0060    64D   273    276    473    475
+                                       491    492y   501y  1088   1089
+                                      1091y  1098
+SP                             $0062    65D   305    306    308y   585
+                                       587    596y   998   1001   1003y
+                                      1023   1025   1027y  1051   1054
+                                      1057y  1071   1074   1079y  1102y
+                                      1117   1119   1121y  1134   1136
+                                      1139
+TP                             $0064    66D  1419   1422   1424
+SelPtr                         $0066    67D   579    581   1417   1420
+TL                             $006b    53D  1169
+LL                             $006d    51D   258   1167
+UR                             $006e    50D   257   1166
+UL                             $0070    49D   256   1165
+TR                             $0073    54D  1170
+LR                             $007d    52D   259   1168
+CUP                            $0091    24D   810
+CLR                            $0093    21D   939   1179
+STATUS                         $0096    73D  1267   1268   1272   1367
+                                      1374   1383
+STKEY                          $009b    74D   290
+CLEFT                          $009d    25D   818
+BLNSW                          $00a7    75
+BLNCT                          $00a8    76
+BLNON                          $00aa    77
+EAL                            $00c9    78D  1371   1373   1376y  1377y
+                                      1378y  1382   1385
+FNLEN                          $00d1    79D  1408   1431
+SA                             $00d3    80
+FA                             $00d4    81D  1214   1250   1296
+FNADR                          $00da    82D  1405y  1433   1435
+DOS_Filename                   $0342    84D  1427   1432   1434
+Link                           $0401   164
+START                          $0401   157D   159    162    162
+Linenumber                     $0403   167
+SysCommand                     $0405   173
+StartML                        $0406   177
+LineEnd                        $0426   180
+EndLink                        $0427   181D   164
+NUMBER                         $042c   185D   363    377    391    398
+                                       400    403    406    483
+UnitText                       $0432   186D  1197   1197
+DriveText                      $0438   187D  1198   1198
+HelpText                       $043f   188D  1204   1204
+ProgramText                    $044a   189D  1201   1201
+Msg_READY                      $0475   190D   910    911
+Cols                           $047c   191D   927    951
+Count                          $047d   192D   241    249    261    279
+                                      1005   1029   1147   1158
+CursorRow                      $047e   193D   268    888   1038   1047
+                                      1067
+CursorCol                      $047f   194D   889   1039   1050   1058
+                                      1070   1080   1103
+Entries                        $0480   195D   504    513    524    624
+                                       639    679    688    721    858
+                                       872    890
+FirstLine                      $0481   196D   623    677    681    709
+                                       711    786    894
+LastLine                       $0482   197D   566    620    674    678
+                                       722    724    931
+HelpScreen                     $0483   198D   282    799    853
+Pages                          $0484   199D   929   1184
+ScreenLo                       $0485   200D   946    950    965    996
+                                      1022   1049   1069   1116   1133
+ScreenHi                       $049e   201D   948    966    999   1024
+                                      1052   1072   1118   1135
+EntryLo                        $04b7   202D   574    584    968    975
+EntryHi                        $04df   203D   576    586    971    979
+Page                           $0507   204D  1185   1193
+Offset                         $0508   205D   239    891    997   1020
+                                      1114   1131   1187   1190   1192
+                                      1196
+Unit                           $0509   206D   425    745    748    765
+                                       768    884   1213   1249   1295
+Drive                          $050a   207D   447    752    755    772
+                                       775    886   1256
+LV0                            $050b   208D   355    364    369    378
+                                       383    392
+LV1                            $050c   209D   356    360    365    370
+                                       374    379    384    388
+Reverse                        $050d   210D   421    446    583    595
+                                       892   1078   1101   1138   1200
+                                      1203
+Select                         $050e   211D   418    442    572    633
+                                       642    651    657    670    691
+                                       692    706    719    726    743
+                                       763    785    861    893
+FirstFile                      $050f   212
+SOD                            $0510   213D   607    609    682    684
+                                       686    713    715    717    788
+                                       790   1239   1243
+EOD                            $0512   214D   533    535   1237   1242
+                                      1279   1281
+TargetLo                       $0514   215
+TargetHi                       $0515   216
+SelectionLo                    $0516   217D   575
+SelectionHi                    $0517   218D   577
+SelFilename                    $0518   219
+HelpWin                        $0519   225D   265    266
+ShowHelp                       $05eb   235D   836
+ShHe10                         $064a   267D   280
+STOP                           $066c   288
+Error_Beep                     $0671   295
+PrintText                      $0676   302
+PrTe_10                        $067c   308D   312
+Flush_Keyboard_Queue           $0686   316D   320    909
+FormatByte                     $068c   324D   426
+asts_01                        $0691   333D   335
+asts_rt                        $06a3   345D   338
+FormatInteger                  $06a4   349D   481
+FORINT_01                      $06a7   354D   362
+FORINT_02                      $06c5   368D   376
+FORINT_03                      $06e3   382D   390
+FORINT_04                      $06fe   395D   397
+FORINT_05                      $070f   403D   409
+FORINT_06                      $071e   410D   405
+ShowUnit                       $071f   414D   734    855    863
+ShUn10                         $0728   421D   419
+ShUn20                         $0742   433D   428
+ShowDrive                      $074a   438D   735    856
+ShDr10                         $0754   446D   444
+ShowDiskName                   $0761   454D   857
+FormatFilename                 $0779   469D   522
+FoFi10                         $078e   483D   487
+FoFi20                         $079e   491D   494    496
+FoFi40                         $07ac   498D   503
+FoFi50                         $07b1   501
+FoFi99                         $07ba   505D   490    500
+FormatEntries                  $07bb   509D   874
+FoEn10                         $07c8   518D   537
+FoEn20                         $07e8   533D   531
+FoEn99                         $07f4   538D   521
+PET2SCR                        $07f5   542D   594   1077   1093   1100
+                                      1222
+P2C10                          $0800   551D   548
+P2C99                          $080a   556D   546    552    554
+ShowEntry                      $080b   559D   526    612
+ShEn10                         $0831   583D   573
+ShEn20                         $0840   589D   599
+ShEn30                         $084a   594D   592
+ShEn99                         $0857   600D   567    590
+ShowEntries                    $0858   604D   736    862
+ShoE10                         $0864   612D   625
+ShoE20                         $0872   619D   617
+ShoE99                         $0881   626D   621
+RightSelect                    $0882   630D   816
+RiSe99                         $0898   643D   636    640
+LeftSelect                     $0899   648D   820
+LeSe99                         $08a9   658D   655
+IncSelect                      $08aa   662D   634    842
+InSe10                         $08d3   687D   685
+InSe20                         $08d4   688D   675
+InSe30                         $08d9   690D   680
+InSe40                         $08de   692D   671    673    689
+InSe99                         $08e1   693
+DecSelect                      $08e2   698D   653    812
+DeSe10                         $08ff   718D   716
+DeSe20                         $0900   719D   708    710
+DeSe30                         $0910   725D   723
+DeSe99                         $0914   727D   720
+ShowSelection                  $0915   731D   843
+IncValue                       $091e   740D   824
+InVa10                         $092f   750D   744
+InVa20                         $093c   756D   749
+InVa99                         $093f   757D   747    751    754
+DecValue                       $0940   760D   828
+DeVa10                         $0951   770D   764
+DeVa20                         $095e   776D   769
+DeVa99                         $0961   777D   767    771    774
+HomeSelect                     $0962   781D   832
+MainLoop                       $0975   794D   798    837    841    844
+                                       908
+MaLo02                         $0984   804D   800
+MaLo05                         $0990   810
+MaLo10                         $099a   814D   811
+MaLo15                         $09a4   818D   815
+MaLo20                         $09ae   822D   819
+MaLo25                         $09b8   826D   823
+MaLo30                         $09c2   830D   827
+MaLo35                         $09cc   834D   831
+MaLo40                         $09d6   838D   835
+MaLo45                         $09dd   841D   839
+MaLo85                         $09e0   842D   807    809
+MaLo90                         $09e3   843D   813    817    821    825
+                                       829    833
+MaLo99                         $09e9   845D   805
+Repaint                        $09ea   849D   802    875    904
+Repa10                         $0a0b   864D   859
+Reload                         $0a0c   868D   756    776    907
+Init                           $0a1b   880D   906
+Main                           $0a3d   898D   183
+Detect_BASIC_version           $0a5f   917D   901
+Detect_Screen_Width            $0a60   923D   902
+SetupScreen                    $0a70   936D   903
+SeSe10                         $0a80   946D   956
+SeSe20                         $0a91   954D   952
+SetupEntries                   $0a97   961D   905
+SeEn10                         $0a99   965D   982
+SeEn20                         $0ab3   978D   976
+HorLine                        $0abd   987D   244    247   1150   1153
+                                      1156
+HoLi10                         $0acf  1003D  1006
+VerLine                        $0ad8  1010D   252    255   1161   1164
+VeLi10                         $0ade  1022D  1030
+GotoXY                         $0af3  1035D   264    271    424    459
+                                      1197   1198   1201   1204
+PutChar                        $0afa  1043D   435
+PutCharR                       $0b17  1063D   431    433   1094
+PutString                      $0b3a  1085D   267    466   1197   1198
+                                      1201   1204
+PuSt10                         $0b4a  1095D  1104
+PuSt99                         $0b60  1105D  1092   1097   1099
+PlotAt                         $0b61  1108D   256    257    258    259
+                                      1165   1166   1167   1168   1169
+                                      1170
+PlotAtR                        $0b76  1125D   450
+PaintPage                      $0b8e  1143D  1188
+PaintMask                      $0bf2  1174D   854
+PaMa10                         $0c0f  1188D  1194
+GetDiskStatus                  $0c68  1210D  1259   1309
+gss_10                         $0c77  1219D  1226
+gss_20                         $0c89  1227D  1221
+LoadDirectory                  $0c8d  1232D   873
+LoDi05                         $0ca6  1246D  1248
+LoDi10                         $0ce1  1270D  1275   1277
+LoDi20                         $0cf1  1278D  1273
+LoDi99                         $0cfc  1282D  1262
+GetLoadAddress                 $0cff  1285D   523
+GLA10                          $0d1c  1301D  1307
+GLA20                          $0d2a  1308D  1303
+GLA99                          $0d5d  1331D  1294   1312
+ASCII_Hex                      $0d60  1334D  1317   1324
+Hex_11                         $0d6d  1348D  1346
+Hex_12                         $0d79  1355D  1353
+Load_File                      $0d7a  1358D  1444
+LoFi_22                        $0d8d  1370D  1368
+LoFi_30                        $0d98  1375D  1384
+LoFi_40                        $0d9d  1377D  1379
+LoFi_60                        $0da8  1383D  1381
+Close_Disk_File                $0db1  1389D  1282   1331
+Send_Filename                  $0dbc  1398D  1361
+SeFi_10                        $0dc6  1405D  1409
+SeFi_20                        $0dd0  1410
+Setup_Filename                 $0dd3  1413D  1443
+SpFi_10                        $0de2  1424D  1430
+SpFi_20                        $0df0  1431D  1426
+Flash                          $0dfb  1440D   840
+EOP                            $0e02  1449D    97    162
+Buffer                         $0f00    97D   461    463    464    465
+                                       516    789   1235   1240   1246
+Screen                         $8000    90D   943    944
+DiskStatus                     $80c9   221D  1223   1260   1310
+READY                          $b403   105D   912
+TALK                           $f0d2   106D  1215   1263   1313   1362
+LISTEN                         $f0d5   107D  1251   1297   1392   1401
+SECOND                         $f143   108D  1253   1299   1394   1403
+TKSA                           $f193   109D  1217   1265   1315   1364
+CIOUT                          $f19e   110D  1255   1257   1304   1406
+UNTLK                          $f1ae   111D  1227   1278   1330   1386
+UNLSN                          $f1b9   112D  1258   1308   1395   1410
+ACPTR                          $f1c0   113D  1219   1270   1316   1323
+                                      1365   1370   1375
+Kernal_STOP                    $f343   118
+CHROUT                         $ffd2   115D   940    942
+BSOUT                          $ffd2   114D   299    309   1178   1180
+                                      1181
+GETIN                          $ffe4   116D   319    797
+BP                             $005e    63D   472    474    477y   480y
+                                       484y   488y   497y   502y   515
+                                       517    519y   528    530    532
+                                       534    536    578    580    589y
+                                       608    610    614    616    618
+                                      1236   1241   1271y  1276   1280
+                                      1290y  1292y  1301y  1319y  1322y
+                                      1326y  1329
+SP                             $0062    65D   305    306    308y   585
+                                       587    596y   998   1001   1003y
+                                      1023   1025   1027y  1051   1054
+                                      1057y  1071   1074   1079y  1102y
+                                      1117   1119   1121y  1134   1136
+                                      1139
+STP                            $0060    64D   273    276    473    475
+                                       491    492y   501y  1088   1089
+                                      1091y  1098
+EAL                            $00c9    78D  1371   1373   1376y  1377y
+                                      1378y  1382   1385
+STATUS                         $0096    73D  1267   1268   1272   1367
+                                      1374   1383
+SelPtr                         $0066    67D   579    581   1417   1420
+PosDiskName                    $0008    98D   461    463    464    465
+FNADR                          $00da    82D  1405y  1433   1435
+FA                             $00d4    81D  1214   1250   1296
+TP                             $0064    66D  1419   1422   1424
+EntriesPerPage                 $0014    91D   975    979    981
+FNLEN                          $00d1    79D  1408   1431
+CLR                            $0093    21D   939   1179
+LR                             $007d    52D   259   1168
+UL                             $0070    49D   256   1165
+UR                             $006e    50D   257   1166
+LL                             $006d    51D   258   1167
+CLEFT                          $009d    25D   818
+STKEY                          $009b    74D   290
+CUP                            $0091    24D   810
+TR                             $0073    54D  1170
+TL                             $006b    53D  1169
+VER_BAR                        $005d    48D  1026
+HOR_BAR                        $0040    47D  1002
+HelpLen                        $001e   223D   274
+CRIGHT                         $001d    23D   814
+ROWS                           $0019    57D   955
+HOME                           $0013    19D   830
+CDOWN                          $0011    22D   808
+TAB                            $0009    17D   806
+HelpLines                      $0007   224D   260
+C8296                          $0000    31D    33
+SA                             $00d3    80
+BLNON                          $00aa    77
+BLNCT                          $00a8    76
+BLNSW                          $00a7    75
+PosDiskID                      $001a    99
+DEL                            $0014    20
+CR                             $000d    18
+BP                             $005e    63D   472    474    477y   480y
+                                       484y   488y   497y   502y   515
+                                       517    519y   528    530    532
+                                       534    536    578    580    589y
+                                       608    610    614    616    618
+                                      1236   1241   1271y  1276   1280
+                                      1290y  1292y  1301y  1319y  1322y
+                                      1326y  1329
+SP                             $0062    65D   305    306    308y   585
+                                       587    596y   998   1001   1003y
+                                      1023   1025   1027y  1051   1054
+                                      1057y  1071   1074   1079y  1102y
+                                      1117   1119   1121y  1134   1136
+                                      1139
+Select                         $050e   211D   418    442    572    633
+                                       642    651    657    670    691
+                                       692    706    719    726    743
+                                       763    785    861    893
+SOD                            $0510   213D   607    609    682    684
+                                       686    713    715    717    788
+                                       790   1239   1243
+Entries                        $0480   195D   504    513    524    624
+                                       639    679    688    721    858
+                                       872    890
+STP                            $0060    64D   273    276    473    475
+                                       491    492y   501y  1088   1089
+                                      1091y  1098
+PlotAt                         $0b61  1108D   256    257    258    259
+                                      1165   1166   1167   1168   1169
+                                      1170
+Reverse                        $050d   210D   421    446    583    595
+                                       892   1078   1101   1138   1200
+                                      1203
+Offset                         $0508   205D   239    891    997   1020
+                                      1114   1131   1187   1190   1192
+                                      1196
+Buffer                         $0f00    97D   461    463    464    465
+                                       516    789   1235   1240   1246
+Unit                           $0509   206D   425    745    748    765
+                                       768    884   1213   1249   1295
+ScreenLo                       $0485   200D   946    950    965    996
+                                      1022   1049   1069   1116   1133
+GotoXY                         $0af3  1035D   264    271    424    459
+                                      1197   1198   1201   1204
+LV1                            $050c   209D   356    360    365    370
+                                       374    379    384    388
+ScreenHi                       $049e   201D   948    966    999   1024
+                                      1052   1072   1118   1135
+Count                          $047d   192D   241    249    261    279
+                                      1005   1029   1147   1158
+NUMBER                         $042c   185D   363    377    391    398
+                                       400    403    406    483
+Drive                          $050a   207D   447    752    755    772
+                                       775    886   1256
+LastLine                       $0482   197D   566    620    674    678
+                                       722    724    931
+FirstLine                      $0481   196D   623    677    681    709
+                                       711    786    894
+CursorCol                      $047f   194D   889   1039   1050   1058
+                                      1070   1080   1103
+EAL                            $00c9    78D  1371   1373   1376y  1377y
+                                      1378y  1382   1385
+PutString                      $0b3a  1085D   267    466   1197   1198
+                                      1201   1204
+MaLo90                         $09e3   843D   813    817    821    825
+                                       829    833
+EOD                            $0512   214D   533    535   1237   1242
+                                      1279   1281
+LV0                            $050b   208D   355    364    369    378
+                                       383    392
+STATUS                         $0096    73D  1267   1268   1272   1367
+                                      1374   1383
+HorLine                        $0abd   987D   244    247   1150   1153
+                                      1156
+MainLoop                       $0975   794D   798    837    841    844
+                                       908
+PET2SCR                        $07f5   542D   594   1077   1093   1100
+                                      1222
+CursorRow                      $047e   193D   268    888   1038   1047
+                                      1067
+VerLine                        $0ad8  1010D   252    255   1161   1164
+EntryHi                        $04df   203D   576    586    971    979
+EntryLo                        $04b7   202D   574    584    968    975
+SelPtr                         $0066    67D   579    581   1417   1420
+PosDiskName                    $0008    98D   461    463    464    465
+PuSt99                         $0b60  1105D  1092   1097   1099
+PutCharR                       $0b17  1063D   431    433   1094
+Reload                         $0a0c   868D   756    776    907
+Repaint                        $09ea   849D   802    875    904
+DeVa99                         $0961   777D   767    771    774
+InVa99                         $093f   757D   747    751    754
+InSe40                         $08de   692D   671    673    689
+P2C99                          $080a   556D   546    552    554
+ShowUnit                       $071f   414D   734    855    863
+HelpScreen                     $0483   198D   282    799    853
+START                          $0401   157D   159    162    162
+DOS_Filename                   $0342    84D  1427   1432   1434
+FNADR                          $00da    82D  1405y  1433   1435
+FA                             $00d4    81D  1214   1250   1296
+TP                             $0064    66D  1419   1422   1424
+EntriesPerPage                 $0014    91D   975    979    981
+EOP                            $0e02  1449D    97    162
+Close_Disk_File                $0db1  1389D  1282   1331
+ASCII_Hex                      $0d60  1334D  1317   1324
+GLA99                          $0d5d  1331D  1294   1312
+LoDi10                         $0ce1  1270D  1275   1277
+GetDiskStatus                  $0c68  1210D  1259   1309
+MaLo85                         $09e0   842D   807    809
+DeSe20                         $0900   719D   708    710
+DecSelect                      $08e2   698D   653    812
+IncSelect                      $08aa   662D   634    842
+RiSe99                         $0898   643D   636    640
+ShowEntries                    $0858   604D   736    862
+ShEn99                         $0857   600D   567    590
+ShowEntry                      $080b   559D   526    612
+FoFi99                         $07ba   505D   490    500
+FoFi20                         $079e   491D   494    496
+ShowDrive                      $074a   438D   735    856
+Flush_Keyboard_Queue           $0686   316D   320    909
+HelpWin                        $0519   225D   265    266
+Page                           $0507   204D  1185   1193
+Pages                          $0484   199D   929   1184
+Cols                           $047c   191D   927    951
+Msg_READY                      $0475   190D   910    911
+ProgramText                    $044a   189D  1201   1201
+HelpText                       $043f   188D  1204   1204
+DriveText                      $0438   187D  1198   1198
+UnitText                       $0432   186D  1197   1197
+FNLEN                          $00d1    79D  1408   1431
+CLR                            $0093    21D   939   1179
+LR                             $007d    52D   259   1168
+UL                             $0070    49D   256   1165
+UR                             $006e    50D   257   1166
+LL                             $006d    51D   258   1167
+Flash                          $0dfb  1440D   840
+SpFi_20                        $0df0  1431D  1426
+SpFi_10                        $0de2  1424D  1430
+Setup_Filename                 $0dd3  1413D  1443
+SeFi_10                        $0dc6  1405D  1409
+Send_Filename                  $0dbc  1398D  1361
+LoFi_60                        $0da8  1383D  1381
+LoFi_40                        $0d9d  1377D  1379
+LoFi_30                        $0d98  1375D  1384
+LoFi_22                        $0d8d  1370D  1368
+Load_File                      $0d7a  1358D  1444
+Hex_12                         $0d79  1355D  1353
+Hex_11                         $0d6d  1348D  1346
+GLA20                          $0d2a  1308D  1303
+GLA10                          $0d1c  1301D  1307
+GetLoadAddress                 $0cff  1285D   523
+LoDi99                         $0cfc  1282D  1262
+LoDi20                         $0cf1  1278D  1273
+LoDi05                         $0ca6  1246D  1248
+LoadDirectory                  $0c8d  1232D   873
+gss_20                         $0c89  1227D  1221
+gss_10                         $0c77  1219D  1226
+PaMa10                         $0c0f  1188D  1194
+PaintMask                      $0bf2  1174D   854
+PaintPage                      $0b8e  1143D  1188
+PlotAtR                        $0b76  1125D   450
+PuSt10                         $0b4a  1095D  1104
+PutChar                        $0afa  1043D   435
+VeLi10                         $0ade  1022D  1030
+HoLi10                         $0acf  1003D  1006
+SeEn20                         $0ab3   978D   976
+SeEn10                         $0a99   965D   982
+SetupEntries                   $0a97   961D   905
+SeSe20                         $0a91   954D   952
+SeSe10                         $0a80   946D   956
+SetupScreen                    $0a70   936D   903
+Detect_Screen_Width            $0a60   923D   902
+Detect_BASIC_version           $0a5f   917D   901
+Main                           $0a3d   898D   183
+Init                           $0a1b   880D   906
+Repa10                         $0a0b   864D   859
+MaLo99                         $09e9   845D   805
+MaLo45                         $09dd   841D   839
+MaLo40                         $09d6   838D   835
+MaLo35                         $09cc   834D   831
+MaLo30                         $09c2   830D   827
+MaLo25                         $09b8   826D   823
+MaLo20                         $09ae   822D   819
+MaLo15                         $09a4   818D   815
+MaLo10                         $099a   814D   811
+MaLo02                         $0984   804D   800
+HomeSelect                     $0962   781D   832
+DeVa20                         $095e   776D   769
+DeVa10                         $0951   770D   764
+DecValue                       $0940   760D   828
+InVa20                         $093c   756D   749
+InVa10                         $092f   750D   744
+IncValue                       $091e   740D   824
+ShowSelection                  $0915   731D   843
+DeSe99                         $0914   727D   720
+DeSe30                         $0910   725D   723
+DeSe10                         $08ff   718D   716
+InSe30                         $08d9   690D   680
+InSe20                         $08d4   688D   675
+InSe10                         $08d3   687D   685
+LeSe99                         $08a9   658D   655
+LeftSelect                     $0899   648D   820
+RightSelect                    $0882   630D   816
+ShoE99                         $0881   626D   621
+ShoE20                         $0872   619D   617
+ShoE10                         $0864   612D   625
+ShEn30                         $084a   594D   592
+ShEn20                         $0840   589D   599
+ShEn10                         $0831   583D   573
+P2C10                          $0800   551D   548
+FoEn99                         $07f4   538D   521
+FoEn20                         $07e8   533D   531
+FoEn10                         $07c8   518D   537
+FormatEntries                  $07bb   509D   874
+FoFi40                         $07ac   498D   503
+FoFi10                         $078e   483D   487
+FormatFilename                 $0779   469D   522
+ShowDiskName                   $0761   454D   857
+ShDr10                         $0754   446D   444
+ShUn20                         $0742   433D   428
+ShUn10                         $0728   421D   419
+FORINT_06                      $071e   410D   405
+FORINT_05                      $070f   403D   409
+FORINT_04                      $06fe   395D   397
+FORINT_03                      $06e3   382D   390
+FORINT_02                      $06c5   368D   376
+FORINT_01                      $06a7   354D   362
+FormatInteger                  $06a4   349D   481
+asts_rt                        $06a3   345D   338
+asts_01                        $0691   333D   335
+FormatByte                     $068c   324D   426
+PrTe_10                        $067c   308D   312
+ShHe10                         $064a   267D   280
+ShowHelp                       $05eb   235D   836
+SelectionHi                    $0517   218D   577
+SelectionLo                    $0516   217D   575
+EndLink                        $0427   181D   164
+CLEFT                          $009d    25D   818
+STKEY                          $009b    74D   290
+CUP                            $0091    24D   810
+TR                             $0073    54D  1170
+TL                             $006b    53D  1169
+VER_BAR                        $005d    48D  1026
+HOR_BAR                        $0040    47D  1002
+HelpLen                        $001e   223D   274
+CRIGHT                         $001d    23D   814
+ROWS                           $0019    57D   955
+HOME                           $0013    19D   830
+CDOWN                          $0011    22D   808
+TAB                            $0009    17D   806
+HelpLines                      $0007   224D   260
+C8296                          $0000    31D    33
+SeFi_20                        $0dd0  1410
+MaLo05                         $0990   810
+InSe99                         $08e1   693
+FoFi50                         $07b1   501
+PrintText                      $0676   302
+Error_Beep                     $0671   295
+STOP                           $066c   288
+SelFilename                    $0518   219
+TargetHi                       $0515   216
+TargetLo                       $0514   215
+FirstFile                      $050f   212
+LineEnd                        $0426   180
+StartML                        $0406   177
+SysCommand                     $0405   173
+Linenumber                     $0403   167
+Link                           $0401   164
+SA                             $00d3    80
+BLNON                          $00aa    77
+BLNCT                          $00a8    76
+BLNSW                          $00a7    75
+PosDiskID                      $001a    99
+DEL                            $0014    20
+CR                             $000d    18
