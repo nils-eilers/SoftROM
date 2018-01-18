@@ -2,7 +2,7 @@
 ; ************* SoftROM EEPROM tool ************
 ; **********************************************
 ;
-; Assemble with "The Black Smurf Assembler"
+; Assemble with "The Bit Shift Assembler"
 ; freely available from https://github.com/Edilbert/BSA
 ;
 ; Copyright (c) 2014 Nils Eilers <nils.eilers@gmx.de>
