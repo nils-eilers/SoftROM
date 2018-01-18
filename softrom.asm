@@ -61,7 +61,7 @@ ROWS       =  25
 ; ****************************
 
 BP        = $5e      ; Buffer Pointer
-STP       = $60      ; String Pointer
+STRPTR    = $60      ; String Pointer
 SP        = $62      ; SCREEN Pointer
 TP        = $64      ; Temporary Pointer
 SelPtr    = $66      ; Selection pointer
@@ -270,10 +270,10 @@ ShHe10    JSR PutString
           LDY #24
           JSR GotoXY
           CLC
-          LDA STP
+          LDA STRPTR
           ADC #HelpLen
           TAX
-          LDA STP+1
+          LDA STRPTR+1
           ADC #0
           TAY
           DEC Count
@@ -470,9 +470,9 @@ ShDr10    STX Reverse
 ; **************
 
           LDA BP
-          STA STP
+          STA STRPTR
           LDA BP+1
-          STA STP+1
+          STA STRPTR+1
           LDY #2
           LDA (BP),Y      ; Blocks low
           TAX
@@ -488,8 +488,8 @@ FoFi10    LDA NUMBER+2,Y
           LDA (BP),Y
           CMP #' '
           BNE FoFi99
-FoFi20    INC STP
-          LDA (STP),Y
+FoFi20    INC STRPTR
+          LDA (STRPTR),Y
           CMP #' '
           BEQ FoFi20
           CMP #$22
@@ -498,7 +498,7 @@ FoFi20    INC STP
 FoFi40    INY
           CPY #$20
           BCS FoFi99
-FoFi50    LDA (STP),Y
+FoFi50    LDA (STRPTR),Y
           STA (BP),Y
           BNE FoFi40
           INC Entries
@@ -1085,17 +1085,17 @@ VeLi10   LDA ScreenLo,X
   PutString
 ; *********
 
-          STX STP
-          STY STP+1
+          STX STRPTR
+          STY STRPTR+1
           LDY #0
-          LDA (STP),Y
+          LDA (STRPTR),Y
           BEQ PuSt99
           JSR PET2SCR
           JSR PutCharR
 PuSt10    INY
           CPY #80
           BCS PuSt99      ; safety exit
-          LDA (STP),Y
+          LDA (STRPTR),Y
           BEQ PuSt99
           JSR PET2SCR
           ORA Reverse

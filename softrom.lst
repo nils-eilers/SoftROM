@@ -61,7 +61,7 @@ SKIP
               ; ****************************
 
 005e          BP        = $5e      ; Buffer Pointer
-0060          STP       = $60      ; String Pointer
+0060          STRPTR    = $60      ; String Pointer
 0062          SP        = $62      ; SCREEN Pointer
 0064          TP        = $64      ; Temporary Pointer
 0066          SelPtr    = $66      ; Selection pointer
@@ -289,17 +289,17 @@ f343          Kernal_STOP = $f343
 0651 a0 18              LDY #24
 0653 20 f3 0a           JSR GotoXY
 0656 18                 CLC
-0657 a5 60              LDA STP
+0657 a5 60              LDA STRPTR
 0659 69 1e              ADC #HelpLen
 065b aa                 TAX
-065c a5 61              LDA STP+1
+065c a5 61              LDA STRPTR+1
 065e 69 00              ADC #0
 0660 a8                 TAY
 0661 ce 7d 04           DEC Count
 0664 d0 e4              BNE ShHe10
 0666 a9 ff              LDA #$ff
 0668 8d 83 04           STA HelpScreen
-066b 60                 RTS
+066b 60                 RTS ;Size  129 [ShowHelp]
 
 
 
@@ -308,7 +308,7 @@ f343          Kernal_STOP = $f343
               ; ****
 066c a5 9b              LDA STKEY
 066e c9 ef              CMP #$ef
-0670 60                 RTS
+0670 60                 RTS ;Size    5 [STOP]
 
               ; **********
 0671            Error_Beep
@@ -329,7 +329,7 @@ f343          Kernal_STOP = $f343
 0681 c8                 INY
 0682 ca                 DEX
 0683 d0 f7              BNE PrTe_10
-0685 60                 RTS
+0685 60                 RTS ;Size   16 [PrintText]
 
               ; ********************
 0686            Flush_Keyboard_Queue
@@ -337,7 +337,7 @@ f343          Kernal_STOP = $f343
 
 0686 20 e4 ff           JSR GETIN
 0689 d0 fb              BNE Flush_Keyboard_Queue
-068b 60                 RTS
+068b 60                 RTS ;Size    6 [Flush_Keyboard_Queue]
 
               ; ***********
 068c            FormatByte
@@ -361,7 +361,7 @@ f343          Kernal_STOP = $f343
 06a0 aa                 TAX
 06a1 68                 PLA
 06a2 c8                 INY          ; Y = 1
-06a3 60       asts_rt   RTS
+06a3 60       asts_rt   RTS ;Size   24 [FormatByte]
 
 
               ; **************
@@ -426,7 +426,7 @@ f343          Kernal_STOP = $f343
 0719 e8                 INX
 071a e0 04              CPX #4
 071c 90 f1              BCC FORINT_05
-071e 60       FORINT_06 RTS
+071e 60       FORINT_06 RTS ;Size  123 [FormatInteger]
 
 
               ; ********
@@ -489,9 +489,9 @@ f343          Kernal_STOP = $f343
               ; **************
 
 0779 a5 5e              LDA BP
-077b 85 60              STA STP
+077b 85 60              STA STRPTR
 077d a5 5f              LDA BP+1
-077f 85 61              STA STP+1
+077f 85 61              STA STRPTR+1
 0781 a0 02              LDY #2
 0783 b1 5e              LDA (BP),Y      ; Blocks low
 0785 aa                 TAX
@@ -507,8 +507,8 @@ f343          Kernal_STOP = $f343
 0798 b1 5e              LDA (BP),Y
 079a c9 20              CMP #' '
 079c d0 1c              BNE FoFi99
-079e e6 60    FoFi20    INC STP
-07a0 b1 60              LDA (STP),Y
+079e e6 60    FoFi20    INC STRPTR
+07a0 b1 60              LDA (STRPTR),Y
 07a2 c9 20              CMP #' '
 07a4 f0 f8              BEQ FoFi20
 07a6 c9 22              CMP #$22
@@ -517,11 +517,11 @@ f343          Kernal_STOP = $f343
 07ac c8       FoFi40    INY
 07ad c0 20              CPY #$20
 07af b0 09              BCS FoFi99
-07b1 b1 60    FoFi50    LDA (STP),Y
+07b1 b1 60    FoFi50    LDA (STRPTR),Y
 07b3 91 5e              STA (BP),Y
 07b5 d0 f5              BNE FoFi40
 07b7 ee 80 04           INC Entries
-07ba 60       FoFi99    RTS
+07ba 60       FoFi99    RTS ;Size   66 [FormatFilename]
 
 
               ; *************
@@ -554,7 +554,7 @@ f343          Kernal_STOP = $f343
 07ed ad 13 05           LDA EOD+1
 07f0 e5 5f              SBC BP+1
 07f2 b0 d4              BCS FoEn10
-07f4 60       FoEn99    RTS
+07f4 60       FoEn99    RTS ;Size   58 [FormatEntries]
 
 
               ; *******
@@ -566,13 +566,13 @@ f343          Kernal_STOP = $f343
 07f9 c9 5b              CMP #$5b
 07fb b0 03              BCS P2C10
 07fd 29 1f              AND #$1f    ; a - z
-07ff 60                 RTS
+07ff 60                 RTS ;Size   11 [PET2SCR]
 0800 c9 c1    P2C10     CMP #$c1
 0802 90 06              BCC P2C99
 0804 c9 ca              CMP #$ca
 0806 b0 02              BCS P2C99
 0808 29 7f              AND #$7f    ; A - Z
-080a 60       P2C99     RTS
+080a 60       P2C99     RTS ;Size   22 [PET2SCR]
 
               ; *********
 080b            ShowEntry
@@ -616,7 +616,7 @@ f343          Kernal_STOP = $f343
 0852 c8                 INY
 0853 c0 20              CPY #32
 0855 90 e9              BCC ShEn20
-0857 60       ShEn99    RTS
+0857 60       ShEn99    RTS ;Size   77 [ShowEntry]
 
 
               ; ***********
@@ -642,7 +642,7 @@ f343          Kernal_STOP = $f343
 0879 6d 81 04           ADC FirstLine  ; Carry is clear
 087c cd 80 04           CMP Entries
 087f 90 e3              BCC ShoE10
-0881 60       ShoE99    RTS
+0881 60       ShoE99    RTS ;Size   42 [ShowEntries]
 
 
               ; ***********
@@ -659,7 +659,7 @@ f343          Kernal_STOP = $f343
 0891 b0 05              BCS RiSe99
 0893 69 02              ADC #2
 0895 8d 0e 05           STA Select
-0898 60       RiSe99    RTS
+0898 60       RiSe99    RTS ;Size   23 [RightSelect]
 
 
 
@@ -674,7 +674,7 @@ f343          Kernal_STOP = $f343
 08a2 90 05              BCC LeSe99
 08a4 e9 14              SBC #20
 08a6 8d 0e 05           STA Select
-08a9 60       LeSe99    RTS
+08a9 60       LeSe99    RTS ;Size   17 [LeftSelect]
 
 
               ; *********
@@ -703,13 +703,13 @@ f343          Kernal_STOP = $f343
 08cb 8d 10 05           STA SOD
 08ce 90 03              BCC InSe10
 08d0 ee 11 05           INC SOD+1
-08d3 60       InSe10    RTS
+08d3 60       InSe10    RTS ;Size   42 [IncSelect]
 08d4 ec 80 04 InSe20    CPX Entries
 08d7 90 05              BCC InSe40          ; in range
 08d9 a2 01    InSe30    LDX #1
 08db 8e 0e 05           STX Select          ; wrap around
 08de ee 0e 05 InSe40    INC Select
-08e1 60       InSe99    RTS
+08e1 60       InSe99    RTS ;Size   56 [IncSelect]
 
 
 
@@ -734,7 +734,7 @@ f343          Kernal_STOP = $f343
 08f7 8d 10 05           STA SOD
 08fa b0 03              BCS DeSe10
 08fc ce 11 05           DEC SOD+1
-08ff 60       DeSe10    RTS
+08ff 60       DeSe10    RTS ;Size   30 [DecSelect]
 0900 ce 0e 05 DeSe20    DEC Select
 0903 10 0f              BPL DeSe99
 0905 ae 80 04           LDX Entries
@@ -743,7 +743,7 @@ f343          Kernal_STOP = $f343
 090d ae 82 04           LDX LastLine
 0910 e8       DeSe30    INX
 0911 8e 0e 05           STX Select          ; wrap around
-0914 60       DeSe99    RTS
+0914 60       DeSe99    RTS ;Size   51 [DecSelect]
 
 
               ; *************
@@ -773,7 +773,7 @@ f343          Kernal_STOP = $f343
 0937 b0 06              BCS InVa99
 0939 ee 0a 05           INC Drive
 093c 20 0c 0a InVa20    JSR Reload
-093f 60       InVa99    RTS
+093f 60       InVa99    RTS ;Size   34 [IncValue]
 
               ; ********
 0940            DecValue
@@ -793,7 +793,7 @@ f343          Kernal_STOP = $f343
 0959 90 06              BCC DeVa99
 095b ce 0a 05           DEC Drive
 095e 20 0c 0a DeVa20    JSR Reload
-0961 60       DeVa99    RTS
+0961 60       DeVa99    RTS ;Size   34 [DecValue]
 
 
               ; **********
@@ -807,7 +807,7 @@ f343          Kernal_STOP = $f343
 096c 8d 10 05           STA SOD
 096f a9 0f              LDA #>Buffer
 0971 8d 11 05           STA SOD+1
-0974 60                 RTS
+0974 60                 RTS ;Size   19 [HomeSelect]
 
               ; ********
 0975            MainLoop
@@ -861,7 +861,7 @@ f343          Kernal_STOP = $f343
 09e0 20 aa 08 MaLo85    JSR IncSelect
 09e3 20 15 09 MaLo90    JSR ShowSelection
 09e6 4c 75 09           JMP MainLoop
-09e9 60       MaLo99    RTS
+09e9 60       MaLo99    RTS ;Size  117 [MainLoop]
 
 
               ; *******
@@ -880,7 +880,7 @@ f343          Kernal_STOP = $f343
 0a02 8d 0e 05           STA Select
 0a05 20 58 08           JSR ShowEntries
 0a08 20 1f 07           JSR ShowUnit
-0a0b 60       Repa10    RTS
+0a0b 60       Repa10    RTS ;Size   34 [Repaint]
 
 
               ; ******
@@ -892,7 +892,7 @@ f343          Kernal_STOP = $f343
 0a11 20 8d 0c           JSR LoadDirectory
 0a14 20 bb 07           JSR FormatEntries
 0a17 20 ea 09           JSR Repaint
-0a1a 60                 RTS
+0a1a 60                 RTS ;Size   15 [Reload]
 
 
               ; ****
@@ -911,7 +911,7 @@ f343          Kernal_STOP = $f343
 0a33 8d 0d 05           STA Reverse
 0a36 8d 0e 05           STA Select
 0a39 8d 81 04           STA FirstLine
-0a3c 60                 RTS
+0a3c 60                 RTS ;Size   34 [Init]
 
               ; ****
 0a3d            Main
@@ -936,7 +936,7 @@ f343          Kernal_STOP = $f343
 0a5f            Detect_BASIC_version
               ; ********************
               ; TODO: detect BASIC version and patch vectors
-0a5f 60                 RTS
+0a5f 60                 RTS ;Size    1 [Detect_BASIC_version]
 
               ; *******************
 0a60            Detect_Screen_Width
@@ -948,7 +948,7 @@ f343          Kernal_STOP = $f343
 0a67 8d 84 04           STA Pages
 0a6a a9 28              LDA #40
 0a6c 8d 82 04           STA LastLine
-0a6f 60                 RTS
+0a6f 60                 RTS ;Size   16 [Detect_Screen_Width]
 
 
               ; ***********
@@ -973,7 +973,7 @@ f343          Kernal_STOP = $f343
 0a91 c8       SeSe20    INY
 0a92 c0 19              CPY #ROWS
 0a94 90 ea              BCC SeSe10
-0a96 60                 RTS
+0a96 60                 RTS ;Size   39 [SetupScreen]
 
 
               ; ************
@@ -999,7 +999,7 @@ f343          Kernal_STOP = $f343
 0ab7 c8                 INY
 0ab8 c0 14              CPY #EntriesPerPage
 0aba 90 dd              BCC SeEn10
-0abc 60                 RTS
+0abc 60                 RTS ;Size   38 [SetupEntries]
 
 
               ; ********
@@ -1023,7 +1023,7 @@ f343          Kernal_STOP = $f343
 0ad1 c8                INY
 0ad2 cc 7d 04          CPY Count
 0ad5 90 f8             BCC HoLi10
-0ad7 60                RTS
+0ad7 60                RTS ;Size   27 [HorLine]
 
               ; ********
 0ad8            VerLine
@@ -1047,7 +1047,7 @@ f343          Kernal_STOP = $f343
 0aec e8                INX
 0aed ec 7d 04          CPX Count
 0af0 90 ec             BCC VeLi10
-0af2 60                RTS
+0af2 60                RTS ;Size   27 [VerLine]
 
 
               ; ******
@@ -1056,7 +1056,7 @@ f343          Kernal_STOP = $f343
 
 0af3 8e 7e 04           STX CursorRow
 0af6 8c 7f 04           STY CursorCol
-0af9 60                 RTS
+0af9 60                 RTS ;Size    7 [GotoXY]
 
               ; *******
 0afa            PutChar
@@ -1075,7 +1075,7 @@ f343          Kernal_STOP = $f343
 0b0f a0 00              LDY #0
 0b11 91 62              STA (SP),Y
 0b13 ee 7f 04           INC CursorCol
-0b16 60                 RTS
+0b16 60                 RTS ;Size   29 [PutChar]
 
 
               ; ********
@@ -1097,31 +1097,31 @@ f343          Kernal_STOP = $f343
 0b31 0d 0d 05           ORA Reverse
 0b34 91 62              STA (SP),Y
 0b36 ee 7f 04           INC CursorCol
-0b39 60                 RTS
+0b39 60                 RTS ;Size   35 [PutCharR]
 
 
               ; *********
 0b3a            PutString
               ; *********
 
-0b3a 86 60              STX STP
-0b3c 84 61              STY STP+1
+0b3a 86 60              STX STRPTR
+0b3c 84 61              STY STRPTR+1
 0b3e a0 00              LDY #0
-0b40 b1 60              LDA (STP),Y
+0b40 b1 60              LDA (STRPTR),Y
 0b42 f0 1c              BEQ PuSt99
 0b44 20 f5 07           JSR PET2SCR
 0b47 20 17 0b           JSR PutCharR
 0b4a c8       PuSt10    INY
 0b4b c0 50              CPY #80
 0b4d b0 11              BCS PuSt99      ; safety exit
-0b4f b1 60              LDA (STP),Y
+0b4f b1 60              LDA (STRPTR),Y
 0b51 f0 0d              BEQ PuSt99
 0b53 20 f5 07           JSR PET2SCR
 0b56 0d 0d 05           ORA Reverse
 0b59 91 62              STA (SP),Y
 0b5b ee 7f 04           INC CursorCol
 0b5e d0 ea              BNE PuSt10
-0b60 60       PuSt99    RTS
+0b60 60       PuSt99    RTS ;Size   39 [PutString]
 
               ; ******
 0b61            PlotAt
@@ -1138,7 +1138,7 @@ f343          Kernal_STOP = $f343
 0b70 85 63             STA SP+1
 0b72 68                PLA
 0b73 91 62             STA (SP),Y
-0b75 60                RTS
+0b75 60                RTS ;Size   21 [PlotAt]
 
               ; *******
 0b76            PlotAtR
@@ -1156,7 +1156,7 @@ f343          Kernal_STOP = $f343
 0b87 68                PLA
 0b88 0d 0d 05          ORA Reverse
 0b8b 91 62             STA (SP),Y
-0b8d 60                RTS
+0b8d 60                RTS ;Size   24 [PlotAtR]
 
               ; *********
 0b8e            PaintPage
@@ -1217,7 +1217,7 @@ f343          Kernal_STOP = $f343
 0bec a0 27              LDY #39
 0bee 20 61 0b           JSR PlotAt
 
-0bf1 60                 RTS
+0bf1 60                 RTS ;Size  100 [PaintPage]
 
               ; *********
 0bf2            PaintMask
@@ -1279,7 +1279,7 @@ f343          Kernal_STOP = $f343
 0c62 a0 04              LDY #>HelpText
 0c64 20 3a 0b           JSR PutString
 
-0c67 60                 RTS
+0c67 60                 RTS ;Size  118 [PaintMask]
 
 
 
@@ -1302,7 +1302,7 @@ f343          Kernal_STOP = $f343
 0c85 c0 28              CPY #40
 0c87 90 ee              BCC gss_10
 0c89 20 ae f1 gss_20    JSR UNTLK
-0c8c 60                 RTS
+0c8c 60                 RTS ;Size   37 [GetDiskStatus]
 
 
               ; *************
@@ -1429,7 +1429,7 @@ f343          Kernal_STOP = $f343
 0d73 c9 3a             CMP #$3a
 0d75 90 02             BCC Hex_12
 0d77 69 06             ADC #6
-0d79 60       Hex_12   RTS
+0d79 60       Hex_12   RTS ;Size   26 [ASCII_Hex]
 
               ; *********
 0d7a            Load_File
@@ -1510,7 +1510,7 @@ f343          Kernal_STOP = $f343
 0df4 85 da              STA FNADR
 0df6 a9 03              LDA #>DOS_Filename
 0df8 85 db              STA FNADR+1
-0dfa 60                 RTS
+0dfa 60                 RTS ;Size   40 [Setup_Filename]
 
 
               ; *****
@@ -1520,7 +1520,7 @@ f343          Kernal_STOP = $f343
 0dfb 20 d3 0d           JSR Setup_Filename
 0dfe 20 7a 0d           JSR Load_File
               ;         JSR Verify_File
-0e01 60                 RTS
+0e01 60                 RTS ;Size    7 [Flash]
 
 
 0e02          EOP       ; END-OF-PROGRAM
@@ -1535,8 +1535,8 @@ TAB                            $0009    17D   806
 CR                             $000d    18
 CDOWN                          $0011    22D   808
 HOME                           $0013    19D   830
-EntriesPerPage                 $0014    91D   975    979    981
 DEL                            $0014    20
+EntriesPerPage                 $0014    91D   975    979    981
 ROWS                           $0019    57D   955
 PosDiskID                      $001a    99
 CRIGHT                         $001d    23D   814
@@ -1551,7 +1551,7 @@ BP                             $005e    63D   472    474    477y   480y
                                       1236   1241   1271y  1276   1280
                                       1290y  1292y  1301y  1319y  1322y
                                       1326y  1329
-STP                            $0060    64D   273    276    473    475
+STRPTR                         $0060    64D   273    276    473    475
                                        491    492y   501y  1088   1089
                                       1091y  1098
 SP                             $0062    65D   305    306    308y   585
@@ -1584,8 +1584,8 @@ SA                             $00d3    80
 FA                             $00d4    81D  1214   1250   1296
 FNADR                          $00da    82D  1405y  1433   1435
 DOS_Filename                   $0342    84D  1427   1432   1434
-Link                           $0401   164
 START                          $0401   157D   159    162    162
+Link                           $0401   164
 Linenumber                     $0403   167
 SysCommand                     $0405   173
 StartML                        $0406   177
@@ -1815,9 +1815,9 @@ UNLSN                          $f1b9   112D  1258   1308   1395   1410
 ACPTR                          $f1c0   113D  1219   1270   1316   1323
                                       1365   1370   1375
 Kernal_STOP                    $f343   118
-CHROUT                         $ffd2   115D   940    942
 BSOUT                          $ffd2   114D   299    309   1178   1180
                                       1181
+CHROUT                         $ffd2   115D   940    942
 GETIN                          $ffe4   116D   319    797
 BP                             $005e    63D   472    474    477y   480y
                                        484y   488y   497y   502y   515
@@ -1833,7 +1833,7 @@ SP                             $0062    65D   305    306    308y   585
                                       1057y  1071   1074   1079y  1102y
                                       1117   1119   1121y  1134   1136
                                       1139
-STP                            $0060    64D   273    276    473    475
+STRPTR                         $0060    64D   273    276    473    475
                                        491    492y   501y  1088   1089
                                       1091y  1098
 EAL                            $00c9    78D  1371   1373   1376y  1377y
@@ -1898,7 +1898,7 @@ SOD                            $0510   213D   607    609    682    684
 Entries                        $0480   195D   504    513    524    624
                                        639    679    688    721    858
                                        872    890
-STP                            $0060    64D   273    276    473    475
+STRPTR                         $0060    64D   273    276    473    475
                                        491    492y   501y  1088   1089
                                       1091y  1098
 PlotAt                         $0b61  1108D   256    257    258    259
